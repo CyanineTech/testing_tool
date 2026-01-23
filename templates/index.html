@@ -835,20 +835,22 @@
                     <small>大小: ${(log.size / 1024).toFixed(2)} KB</small><br>
                     <small>修改: ${new Date(log.modified).toLocaleString()}</small>
                 `;
-                logItem.onclick = () => loadLogContent(log.name);
+                logItem.onclick = (e) => loadLogContent(log.name, e);
                 container.appendChild(logItem);
             });
         }
         
         // 加载日志内容
-        async function loadLogContent(logName) {
+        async function loadLogContent(logName, clickEvent) {
             currentLogFile = logName;
             
             // 更新选中状态
-            document.querySelectorAll('.log-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            event.target.closest('.log-item').classList.add('active');
+            if (clickEvent) {
+                document.querySelectorAll('.log-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                clickEvent.target.closest('.log-item').classList.add('active');
+            }
             
             try {
                 const response = await fetch(`/api/logs/${logName}`);

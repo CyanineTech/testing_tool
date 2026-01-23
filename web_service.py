@@ -86,7 +86,7 @@ def discover_scripts():
                     description = ''.join(docstring_lines).strip('"\' \n')
                 else:
                     description = f"Python脚本: {script_name}"
-        except:
+        except Exception:
             description = f"Python脚本: {script_name}"
         
         scripts[script_name] = {
@@ -209,7 +209,7 @@ def execute_script(script_name):
             try:
                 for line in proc.stdout:
                     output_queue.put(line)
-            except:
+            except Exception:
                 pass
             finally:
                 proc.wait()
@@ -320,14 +320,34 @@ def get_log_content(log_name):
         return jsonify({"status": "error", "message": "日志文件不存在"}), 404
     
     try:
-        # 读取最后1000行
+        # 读取最后1000行 (对于大文件更高效的方式)
+        max_lines = 1000
+        lines = []
+        total_lines = 0
+        
         with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-            last_lines = lines[-1000:] if len(lines) > 1000 else lines
+            # 对于小文件，直接读取全部
+            try:
+                import os
+                file_size = os.path.getsize(log_path)
+                if file_size < 1024 * 1024:  # 小于1MB
+                    lines = f.readlines()
+                    total_lines = len(lines)
+                    last_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+                else:
+                    # 大文件：读取全部行但只保留最后的
+                    for line in f:
+                        lines.append(line)
+                        total_lines += 1
+                    last_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+            except Exception:
+                lines = f.readlines()
+                total_lines = len(lines)
+                last_lines = lines[-max_lines:] if len(lines) > max_lines else lines
         
         return jsonify({
             "content": ''.join(last_lines),
-            "total_lines": len(lines),
+            "total_lines": total_lines,
             "shown_lines": len(last_lines)
         })
     except Exception as e:
@@ -351,10 +371,10 @@ def cleanup_processes():
             try:
                 process_info['process'].terminate()
                 process_info['process'].wait(timeout=3)
-            except:
+            except Exception:
                 try:
                     process_info['process'].kill()
-                except:
+                except Exception:
                     pass
 
 
