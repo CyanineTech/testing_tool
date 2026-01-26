@@ -7,6 +7,14 @@ from typing import Optional, List, Tuple
 
 import requests
 
+# 在被子进程管道捕获时，stdout 默认可能是块缓冲，导致 stderr 的报错行“跑到前面”。
+# 这里尽量启用行缓冲，让打印按发生顺序输出。
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 # 全局配置
 URL_PATH = "/user_backend/users/login/"
 HEADERS = {"Content-Type": "application/json"}
@@ -16,6 +24,63 @@ DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.ini")
 TOKEN_PATTERN = re.compile(r'^\s*token\s*=\s*.*', re.IGNORECASE)
 
 
+def _looks_like_token(value: str) -> bool:
+    s = (value or "").strip()
+    if not s:
+        return False
+
+    bad = {
+        "error",
+        "err",
+        "fail",
+        "failed",
+        "false",
+        "none",
+        "null",
+        "unauthorized",
+        "forbidden",
+        "invalid",
+    }
+    if s.lower() in bad:
+        return False
+
+    # JWT
+    if s.startswith("eyJ") and s.count(".") >= 2 and len(s) >= 40:
+        return True
+
+    # Opaque token: 长度足够且字符看起来像常见 token（避免把错误信息当 token）
+    if len(s) >= 24 and re.fullmatch(r"[A-Za-z0-9\-_.=]+", s):
+        return True
+
+    return False
+
+
+def _extract_error_message(data) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    # 常见字段名
+    for k in ("message", "msg", "error", "detail", "reason", "info"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    # 常见错误码字段
+    for k in ("error_id", "err_id", "errno"):
+        v = data.get(k)
+        if isinstance(v, int) and v:
+            return f"error_id={v}"
+        if isinstance(v, str) and v.strip().isdigit():
+            return f"error_id={v.strip()}"
+    # 递归从 msg/detail 里找
+    for k in ("msg", "data", "detail"):
+        v = data.get(k)
+        if isinstance(v, dict):
+            m = _extract_error_message(v)
+            if m:
+                return m
+    return None
+
+
 def find_token(obj) -> Optional[str]:
     """递归查找可能的 token 字段或 JWT 字符串"""
     placeholders = {"", "null", "none"}
@@ -23,7 +88,9 @@ def find_token(obj) -> Optional[str]:
         # 优先查找常见字段名
         for key in ("token", "access_token", "jwt", "auth_token"):
             if key in obj and isinstance(obj[key], str) and obj[key].strip().lower() not in placeholders:
-                return obj[key].strip()
+                candidate = obj[key].strip()
+                if _looks_like_token(candidate):
+                    return candidate
         for v in obj.values():
             t = find_token(v)
             if t:
@@ -38,10 +105,7 @@ def find_token(obj) -> Optional[str]:
         if not s:
             return None
         # 常见 JWT 开头
-        if s.startswith("eyJ") and len(s) > 20:
-            return s
-        # 若字符串看起来像 token（不仅是占位词）
-        if s.lower() not in placeholders:
+        if _looks_like_token(s):
             return s
     return None
 
@@ -224,6 +288,23 @@ def do_login(host: str, port: int, account: str, password: str, timeout: int = 1
         print(f"📝 状态码：{resp.status_code}", file=sys.stderr)
         print(f"📝 响应内容预览：{resp.text[:100]}...", file=sys.stderr)
         sys.exit(1)
+
+    # 若响应明确表达失败，直接报错（避免把错误字符串当 token）
+    if isinstance(data, dict):
+        success = data.get("success")
+        if success is False or str(success).lower() in {"false", "0"}:
+            msg = _extract_error_message(data) or "服务返回 success=false"
+            print(f"❌ 错误：登录失败 - {msg}", file=sys.stderr)
+            print(f"📝 服务响应内容：{data}", file=sys.stderr)
+            sys.exit(1)
+
+        code = data.get("code")
+        # 常见约定：code=0/200 表示成功；其他视为失败（但不要误伤没有 code 的情况）
+        if code is not None and str(code) not in {"0", "200"}:
+            msg = _extract_error_message(data) or f"服务返回 code={code}"
+            print(f"❌ 错误：登录失败 - {msg}", file=sys.stderr)
+            print(f"📝 服务响应内容：{data}", file=sys.stderr)
+            sys.exit(1)
 
     token = find_token(data)
     if not token:
