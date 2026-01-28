@@ -125,10 +125,14 @@ def find_closest_earlier_directory(dirs, input_timestamp, dir_timestamps):
     return closest_dir, min_diff
 
 def extract_and_sort_log_from_launch_file(launch_file_path, output_file_path, start_timestamp, end_timestamp, input_time_str):
+    """从launch文件中提取指定时间范围的日志，先转换时间戳，然后按时间排序。
+
+    规则：
+    - 有时间戳的行：只要时间戳(秒)在范围内就截取。
+    - 无时间戳的行：如果它“最近的上一条时间戳行”在范围内，则也截取，并按该时间戳往下排。
+      这能覆盖类似 XmlRpcClient::writeRequest 的无时间戳错误行。
     """
-    从launch文件中提取指定时间范围的日志，先转换时间戳，然后按时间排序
-    """
-    extracted_entries = []  # 存储(时间戳, 转换后的行内容)
+    extracted_entries = []  # 存储(sort_key, seq, 行内容)
     
     # 首先检查文件是否存在
     if not os.path.exists(launch_file_path):
@@ -151,41 +155,77 @@ def extract_and_sort_log_from_launch_file(launch_file_path, output_file_path, st
     if not file_encoding:
         file_encoding = 'latin-1'
     
+    def _format_readable_time(ts_seconds_float):
+        dt = datetime.fromtimestamp(int(ts_seconds_float))
+        base = dt.strftime("%Y_%m_%d-%H_%M_%S")
+        frac = ts_seconds_float - int(ts_seconds_float)
+        if frac <= 0:
+            return base
+        micro = int(round(frac * 1_000_000))
+        micro = max(0, min(micro, 999_999))
+        return f"{base}.{micro:06d}"
+
+    def _extract_timestamp(line):
+        """返回 (ts_int_seconds, ts_float_seconds, replacement_func_or_None)"""
+        # ROS常见格式: [1769064863.776402407]
+        m = re.search(r'\[(\d{10})(?:\.(\d{1,9}))?\]', line)
+        if m:
+            sec = int(m.group(1))
+            frac = m.group(2) or ""
+            frac_ns = int(frac.ljust(9, '0')[:9]) if frac else 0
+            ts_float = sec + (frac_ns / 1_000_000_000)
+
+            def _replace(s):
+                readable = _format_readable_time(ts_float)
+                return re.sub(r'\[(\d{10})(?:\.(\d{1,9}))?\]', f'[{readable}]', s, count=1)
+
+            return sec, ts_float, _replace
+
+        # 退化：仅有10位秒级Unix时间戳
+        m = re.search(r'\b(\d{10})\b', line)
+        if m:
+            sec = int(m.group(1))
+            ts_float = float(sec)
+
+            def _replace(s):
+                readable = _format_readable_time(ts_float)
+                return s.replace(m.group(1), readable, 1)
+
+            return sec, ts_float, _replace
+
+        return None, None, None
+
     # 提取日志
     try:
         with open(launch_file_path, 'r', encoding=file_encoding, errors='ignore') as infile:
-            for line_num, line in enumerate(infile, 1):
-                # 查找10位Unix时间戳
-                matches = re.finditer(r'\b(\d{10})\b', line)
-                
-                for match in matches:
-                    ts_str = match.group(1)
-                    try:
-                        timestamp = int(ts_str)
-                        
-                        # 检查时间戳是否在范围内
-                        if start_timestamp <= timestamp <= end_timestamp:
-                            # 将Unix时间戳转换为可读格式
-                            try:
-                                readable_time = datetime.fromtimestamp(timestamp).strftime("%Y_%m_%d-%H_%M_%S")
-                                # 替换时间戳为可读格式
-                                converted_line = line.replace(ts_str, readable_time, 1)
-                                
-                                # 存储条目（按时间戳排序）
-                                extracted_entries.append((timestamp, converted_line))
-                            except (ValueError, OSError):
-                                # 如果转换失败，使用原始时间戳
-                                extracted_entries.append((timestamp, line))
-                            break  # 这一行已经匹配，不需要再检查其他时间戳
-                    except ValueError:
-                        continue
+            last_ts_int = None
+            last_ts_float = None
+
+            for seq, line in enumerate(infile, 1):
+                ts_int, ts_float, replacer = _extract_timestamp(line)
+
+                if ts_int is not None:
+                    last_ts_int = ts_int
+                    last_ts_float = ts_float
+
+                    if start_timestamp <= ts_int <= end_timestamp:
+                        try:
+                            converted_line = replacer(line) if replacer else line
+                        except Exception:
+                            converted_line = line
+                        extracted_entries.append((last_ts_float, seq, converted_line))
+
+                else:
+                    # 无时间戳行：跟随最近的上一条时间戳
+                    if last_ts_int is not None and (start_timestamp <= last_ts_int <= end_timestamp):
+                        extracted_entries.append((last_ts_float, seq, line))
     
     except Exception as e:
         print(f"  处理文件时出错: {e}")
         return 0
     
-    # 按时间戳排序
-    extracted_entries.sort(key=lambda x: x[0])
+    # 按时间戳排序；同一时间戳按原始顺序(seq)稳定排列
+    extracted_entries.sort(key=lambda x: (x[0], x[1]))
     
     # 写入排序后的内容到文件
     try:
@@ -199,7 +239,7 @@ def extract_and_sort_log_from_launch_file(launch_file_path, output_file_path, st
             outfile.write("#" * 80 + "\n\n")
             
             # 写入排序后的内容
-            for timestamp, line in extracted_entries:
+            for _, __, line in extracted_entries:
                 outfile.write(line)
         
         return len(extracted_entries)
