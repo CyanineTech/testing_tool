@@ -46,7 +46,9 @@ logging.basicConfig(
 )
 
 class WarehouseTaskDispatcher:
-    def __init__(self, weights=None, host: Optional[str] = None, scene_id: Optional[int] = None):
+    def __init__(self, weights=None, host: Optional[str] = None, scene_id: Optional[int] = None,
+                 release_locations: bool = False, release_is_all: bool = False,
+                 release_interval_seconds: int = 30 * 60):
         base_host = (host or 'ubuntu-180').strip()
         base_scene_id = scene_id if scene_id is not None else 68
         self.db_config = {
@@ -59,7 +61,12 @@ class WarehouseTaskDispatcher:
             'connection_timeout': 5
         }
         self.api_url = f"http://{base_host}:9990/dispatch_server/dispatch/start/location_call/task/"
+        self.release_location_url = f"http://{base_host}:9990/location_manage_server/locations/release_location/all/"
         self.scene_id = base_scene_id
+        self.release_locations = release_locations
+        self.release_is_all = release_is_all
+        self.release_interval_seconds = int(release_interval_seconds)
+        self._last_release_ts: Optional[float] = None
 
         # ===== storage_area 状态监控（按area_index最大记录的use_status） =====
         # 说明：每次发布任务前会批量查询一次DB（脚本本身每轮sleep 30s，因此天然是30s频率）
@@ -309,6 +316,27 @@ class WarehouseTaskDispatcher:
         except requests.exceptions.RequestException as e:
             logging.error(f"❌ 请求异常: {e}")
             return False
+
+    def release_location_status(self) -> bool:
+        """释放库位占用状态。
+
+        is_all=False: 仅释放库位使用状态
+        is_all=True : 释放手动占用库位
+        """
+        payload = {"is_all": bool(self.release_is_all)}
+        logging.info(f"🔁 释放库位请求URL: {self.release_location_url}")
+        logging.info(f"🔁 释放库位参数: {json.dumps(payload, ensure_ascii=False)}")
+
+        try:
+            response = requests.delete(self.release_location_url, json=payload, timeout=10)
+            logging.info(f"🔁 释放库位响应状态码: {response.status_code}")
+            if response.status_code == 200:
+                return True
+            logging.warning(f"⚠️ 释放库位失败: {response.status_code} - {response.text}")
+            return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"❌ 释放库位请求异常: {e}")
+            return False
     
     def get_location_area(self, location_id):
         """获取库位区域"""
@@ -436,6 +464,13 @@ class WarehouseTaskDispatcher:
         if not self.test_connection():
             logging.error("❌ 连接测试失败，退出程序")
             return
+
+        if self.release_locations:
+            self.release_location_status()
+            self._last_release_ts = time.time()
+            logging.info(f"🕒 已启用库位释放，每 {self.release_interval_seconds} 秒执行一次")
+        else:
+            logging.info("ℹ️ 未启用库位释放接口（如需启用请加 --release-locations）")
         
         task_count = 0
         
@@ -443,6 +478,12 @@ class WarehouseTaskDispatcher:
             try:
                 task_count += 1
                 logging.info(f"\n📦 准备发送第 {task_count} 个任务...")
+
+                if self.release_locations and self._last_release_ts is not None:
+                    now = time.time()
+                    if (now - self._last_release_ts) >= self.release_interval_seconds:
+                        self.release_location_status()
+                        self._last_release_ts = now
 
                 # 0. 发布前校验一次数据库：刷新所有storage_areas的阻塞状态
                 self.refresh_blocked_storage_areas(force=True)
@@ -524,6 +565,9 @@ def main():
     parser.add_argument('--host', type=str, default='ubuntu-180', help='主机名/IP（同时覆盖数据库host与接口URL中的主机名）')
     parser.add_argument('--scene-id', '--scene_id', dest='scene_id', type=int, default=68, help='scene_id（覆盖默认值；兼容--scene_id写法）')
     parser.add_argument('--weights', type=str, help='仓库权重配置，格式：103:0.4,102:0.3,101:0.3')
+    parser.add_argument('--release-locations', action='store_true', help='每次启动先调用释放库位接口，并按间隔重复执行')
+    parser.add_argument('--release-all', action='store_true', help='释放手动占用库位（is_all=true）')
+    parser.add_argument('--release-interval', type=int, default=1800, help='释放库位接口调用间隔（秒，默认1800=30分钟）')
     
     args = parser.parse_args()
     
@@ -549,7 +593,16 @@ def main():
             return
     
     # 创建调度器并运行
-    dispatcher = WarehouseTaskDispatcher(weights=weights, host=args.host, scene_id=args.scene_id)
+    release_locations = True if not args.release_locations else True
+
+    dispatcher = WarehouseTaskDispatcher(
+        weights=weights,
+        host=args.host,
+        scene_id=args.scene_id,
+        release_locations=release_locations,
+        release_is_all=args.release_all,
+        release_interval_seconds=args.release_interval,
+    )
     dispatcher.run()
 
 if __name__ == "__main__":
