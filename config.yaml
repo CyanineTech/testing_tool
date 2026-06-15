@@ -1,0 +1,22 @@
+provider:
+  mode: openai_sdk
+  fallback_mode: copilot_cli
+
+llm:
+  base_url: https://pikachu.claudecode.love
+  api_key_env: OPENAI_API_KEY
+  model: gpt-5.4-mini
+  store_responses: false
+  parallel_tool_calls: false
+  enable_tool_calls: false
+
+ssh:
+  user: robot
+  timeout_seconds: 10
+  reject_unknown_host_keys: true
+  backend: paramiko
+
+system:
+  knowledge_root: knowledge
+  drafts_root: knowledge/_ai_drafts
+  log_root: logs

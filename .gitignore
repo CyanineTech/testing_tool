@@ -1,0 +1,13 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+logs/
+knowledge/_ai_drafts/
+
+.env
+.env.*
+
+*.swp
+*.swo

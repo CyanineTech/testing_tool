@@ -1,0 +1,20 @@
+[Unit]
+Description=Feishu Agent WebSocket Service
+After=network.target
+
+[Service]
+Type=simple
+User=robot
+WorkingDirectory=/home/robot/amr-rcs-troubleshoot
+
+# Load environment variables from /etc/default/feishu_agent (create from
+# feishu_agent/system/feishu_agent.env.example). Values here override any
+# hardcoded defaults in the start script.
+EnvironmentFile=-/etc/default/feishu_agent
+
+ExecStart=/home/robot/amr-rcs-troubleshoot/feishu_agent/start.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

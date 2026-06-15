@@ -1,0 +1,63 @@
+{
+  "deny_patterns": [
+    ">",
+    "\\b(?:rm|reboot|shutdown|halt|poweroff|chmod|chown|usermod|useradd|usermod|systemctl\\s+restart|systemctl\\s+stop)\\b"
+  ],
+  "local_allow_patterns": [
+    "^ip a.*$",
+    "^ping -c [1-5] .*$",
+    "^systemctl status [a-zA-Z0-9_.@-]+.*$",
+    "^dmesg.*$",
+    "^journalctl.*$",
+    "^rostopic hz .*$",
+    "^rostopic echo -n [1-5] .*$",
+    "^rosnode (?:list|info) .*$",
+    "^lsusb(?: -t)?$",
+    "^ip -s -d link show can0$",
+    "^chronyc sources$"
+  ],
+  "ssh_allow_patterns": {
+    "amr": [
+      "^rostopic echo /robot_state -n1$",
+      "^rosnode list$",
+      "^rosnode info .*$",
+      "^rostopic echo /low_level_error -n1$",
+      "^rostopic hz .*$",
+      "^rostopic echo -n [1-5] .*$",
+      "^ip -s -d link show can0$",
+      "^lsusb -t$",
+      "^chronyc sources$",
+      "^dmesg.*$",
+      "^journalctl.*$",
+      "^tail -n [0-9]+ .*$",
+      "^grep .*$",
+      "^head -n [0-9]+ .*$",
+      "^awk .*$",
+      "^find .*$",
+      "^ls .*$",
+      "^find /home/robot/log(?:/not_permanent)? -maxdepth [1-6] \\( -type f -o -type l \\) -name '.*'$",
+      "^find /home/robot -maxdepth [1-5] \\( -type f -o -type l \\) -name 'caution.*'$",
+      "^find /home/robot -maxdepth [1-5] \\( -type f -o -type l \\) -name '.*bag.*'$",
+      "^ls -1 /home/robot/log/not_permanent/?$",
+      "^ls -1 /home/robot/log/not_permanent/[^ ]+$"
+    ],
+    "network": [
+      "^ping -c [1-5] .*$",
+      "^ip a.*$",
+      "^ip route$",
+      "^chronyc sources$",
+      "^systemctl status [a-zA-Z0-9_.@-]+.*$"
+    ],
+    "rcs": [
+      "^docker ps --format '.*'$",
+      "^systemctl --user status [a-zA-Z0-9_.@-]+.*$",
+      "^journalctl.*$",
+      "^tail -n [0-9]+ .*$",
+      "^grep .*$",
+      "^head -n [0-9]+ .*$",
+      "^awk .*$",
+      "^find .*$",
+      "^ls .*$"
+    ]
+  }
+}
