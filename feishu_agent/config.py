@@ -29,7 +29,7 @@ class LlmSettings:
     model: str = "gpt-4.1"
     store_responses: bool = False
     parallel_tool_calls: bool = False
-    enable_tool_calls: bool = False
+    enable_tool_calls: bool = True
 
 
 @dataclass(frozen=True)
@@ -115,7 +115,7 @@ def load_settings() -> Settings:
         model=os.getenv("OPENAI_MODEL", str(llm_payload.get("model", "gpt-4.1"))),
         store_responses=_bool_env("OPENAI_STORE_RESPONSES", bool(llm_payload.get("store_responses", False))),
         parallel_tool_calls=_bool_env("OPENAI_PARALLEL_TOOL_CALLS", bool(llm_payload.get("parallel_tool_calls", False))),
-        enable_tool_calls=_bool_env("OPENAI_ENABLE_TOOL_CALLS", bool(llm_payload.get("enable_tool_calls", False))),
+        enable_tool_calls=_bool_env("OPENAI_ENABLE_TOOL_CALLS", bool(llm_payload.get("enable_tool_calls", True))),
     )
     ssh = SshSettings(
         user=os.getenv("SSH_USER", str(ssh_payload.get("user", "robot"))),

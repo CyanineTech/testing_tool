@@ -53,7 +53,7 @@ _last_runtime_state_cleanup_at = 0.0
 
 
 ID_LIKE_NAME_RE = re.compile(r"^(?:ou|on|oc|cli|u)_?[0-9a-zA-Z-]+$")
-FOLLOW_UP_RE = re.compile(r"^(?:下一步|继续(?:下一步)?(?:检查|排查|看一下)?|再往下|然后呢|怎么查|接着查|处理|排查|查什么|再看)$")
+FOLLOW_UP_RE = re.compile(r"^(?:下一步|继续|再往下|然后呢|怎么查|接着查|处理|排查|查什么|再看)(?:.*)?$")
 MENTION_RE = re.compile(r"<at[^>]*>.*?</at>|@_user_\d+")
 _BOT_IDENTITY_IDS: Optional[Tuple[str, ...]] = None
 
@@ -387,7 +387,14 @@ def resolve_route(text: str, payload: Dict[str, object], sender_open_id: str = "
     conversation_key = get_conversation_key(payload, sender_open_id)
     previous_state = _get_previous_state(conversation_key)
     previous_route = previous_state.get("route")
-    target = extract_target(text) or previous_state.get("target") or ""
+    previous_target = str(previous_state.get("target") or "")
+    explicit_target = extract_target(text)
+    if FOLLOW_UP_RE.fullmatch(text) and previous_target and not explicit_target:
+        target = previous_target
+    elif FOLLOW_UP_RE.fullmatch(text) and previous_target and explicit_target and not re.search(r"(?:\d{1,3}\.){3}\d{1,3}|[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+", explicit_target):
+        target = previous_target
+    else:
+        target = explicit_target or previous_target
 
     if FOLLOW_UP_RE.fullmatch(text) and previous_route:
         return previous_route, conversation_key
@@ -416,7 +423,13 @@ def resolve_case_context(text: str, payload: Dict[str, object], sender_open_id: 
     previous_route = previous_state.get("route")
     previous_target = previous_state.get("target")
     previous_time_key = previous_state.get("time_key")
-    target = extract_target(text) or previous_target
+    explicit_target = extract_target(text)
+    if FOLLOW_UP_RE.fullmatch(text) and previous_target and not explicit_target:
+        target = previous_target
+    elif FOLLOW_UP_RE.fullmatch(text) and previous_target and explicit_target and not re.search(r"(?:\d{1,3}\.){3}\d{1,3}|[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+", explicit_target):
+        target = previous_target
+    else:
+        target = explicit_target or previous_target
 
     text_route = classify_text(text, target=target or "")
     if FOLLOW_UP_RE.fullmatch(text) and previous_route:

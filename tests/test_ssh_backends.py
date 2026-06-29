@@ -112,7 +112,8 @@ class ParamikoSshBackendTests(unittest.TestCase):
         self.assertEqual(client.connect_kwargs["timeout"], 7)
         self.assertFalse(client.connect_kwargs["allow_agent"])
         self.assertFalse(client.connect_kwargs["look_for_keys"])
-        self.assertEqual(client.exec_command_args[0], "timeout --signal=TERM 10s rostopic echo /low_level_error -n1")
+        self.assertIn("source /opt/ros/noetic/setup.bash", client.exec_command_args[0])
+        self.assertIn("timeout --signal=TERM 10s rostopic echo /low_level_error -n1", client.exec_command_args[0])
         self.assertEqual(client.exec_command_args[1], 7)
         self.assertFalse(client.exec_command_args[2])
 

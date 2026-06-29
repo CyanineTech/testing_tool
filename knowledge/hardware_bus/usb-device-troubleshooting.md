@@ -6,6 +6,12 @@
 - 适用于 D415 / D435、DCW2、RGB 充电摄像头、PCAN、单片机串口转 USB、音响和外部拓展坞相关问题。
 - 重点用于区分“单个摄像头掉线”与“USB 总线 / 拓展坞 / CAN 链路整体不稳定”。
 
+## 历史复盘优先
+
+- 硬件与总线问题如果已经恢复，优先固定故障发生时的动作、震动、温升和对应日志时间点。
+- 不要直接拿当前 `lsusb -t`、当前 `can0` 或当前设备在线状态替代历史掉线证据。
+- 应优先回看 `dmesg`、`default.launch`、`mobile_base.launch`、bag 和现场物理条件。
+
 ## 典型现象
 
 - 相机节点离线、图像中断或进模式后某一路摄像头不工作。
@@ -40,6 +46,15 @@
 - `~/log/not_permanent/<时间目录>/mobile_base.launch`
 - `ip -s -d link show can0`
 - `~/autobag/caution_*.bag.zip` 及对应前后摄像头图片
+
+
+## 常见检索词
+
+- 摄像头离线
+- uvcvideo
+- pcan 重连
+- usb 掉线
+- 级联故障
 
 ## 常见根因
 

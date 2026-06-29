@@ -7,6 +7,18 @@
 - 定位丢失、amcl 漂移、topic 不发布、节点异常退出。
 - 用户描述偏向“定位没了”“节点不在了”“地图对不上”“ROS 没起来”。
 
+默认处理方式：
+
+1. 如果是历史 ROS 问题，优先固定故障时间和对应 `not_permanent` 目录。
+2. 不要直接用当前 `rosnode list` / 当前 topic 状态替代历史故障证据。
+3. 历史问题优先看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch`、bag 和 caution。
+
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 常见检索词
 
 - 定位丢失
@@ -36,6 +48,8 @@
 - [tf-tree-incomplete-or-jumping.md](tf-tree-incomplete-or-jumping.md)
 - [history-case-time-jump-causes-motion-anomaly.md](history-case-time-jump-causes-motion-anomaly.md)
 - [history-case-location-ok-but-map-or-tf-mismatch.md](history-case-location-ok-but-map-or-tf-mismatch.md)
+- [history-case-scan-alive-but-localization-frozen.md](history-case-scan-alive-but-localization-frozen.md)
+- [history-case-relocalize-recovers-but-tf-chain-still-suspect.md](history-case-relocalize-recovers-but-tf-chain-still-suspect.md)
 
 ## 推荐命名方式
 

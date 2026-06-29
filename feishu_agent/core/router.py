@@ -8,7 +8,9 @@ from feishu_agent.app import classify_text
 from feishu_agent.diagnostics import extract_target, extract_time_key
 
 
-FOLLOW_UP_RE = re.compile(r"^(?:下一步|继续(?:下一步)?(?:检查|排查|看一下)?|再往下|然后呢|怎么查|接着查|处理|排查|查什么|再看)$")
+FOLLOW_UP_RE = re.compile(
+    r"^(?:下一步|继续|再往下|然后呢|怎么查|接着查|处理|排查|查什么|再看)(?:.*)?$"
+)
 
 THREAD_MESSAGE_ANCHORS: Dict[str, str] = {}
 THREAD_MESSAGE_ANCHOR_LAST_ACTIVE: Dict[str, float] = {}
@@ -106,13 +108,24 @@ def extract_case_context(text: str, payload: Dict[str, object], sender_open_id: 
     event = payload.get("event") or {}
     message = event.get("message") or {}
     previous_state = message.get("state") or {}
-
-    target = extract_target(text) or str(previous_state.get("target") or "")
-    text_route = classify_text(text, target=target)
     previous_route = str(previous_state.get("route") or "")
+    previous_target = str(previous_state.get("target") or "")
+
+    explicit_target = extract_target(text)
+    is_follow_up = bool(FOLLOW_UP_RE.fullmatch(text))
+    if is_follow_up and previous_target and not explicit_target:
+        target = previous_target
+    elif is_follow_up and previous_target and explicit_target:
+        if target_override_allowed(text, explicit_target, previous_target):
+            target = explicit_target
+        else:
+            target = previous_target
+    else:
+        target = explicit_target or previous_target
+
+    text_route = classify_text(text, target=target)
     if FOLLOW_UP_RE.fullmatch(text) and previous_route:
         route = previous_route
-        is_follow_up = True
     elif text_route == "unknown" and previous_route:
         route = previous_route
         is_follow_up = True
@@ -136,6 +149,16 @@ def extract_case_context(text: str, payload: Dict[str, object], sender_open_id: 
         is_follow_up=is_follow_up,
         missing_fields=missing_fields,
     )
+
+
+def target_override_allowed(text: str, explicit_target: str, previous_target: str) -> bool:
+    if not explicit_target or not previous_target:
+        return False
+    if explicit_target == previous_target:
+        return True
+    if extract_target(text) == explicit_target:
+        return bool(re.search(r"(?:\d{1,3}\.){3}\d{1,3}|[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+", explicit_target))
+    return False
 
 
 def needs_clarification(context: CaseContext) -> bool:

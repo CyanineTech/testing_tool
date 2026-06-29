@@ -1,5 +1,29 @@
 # RCS 任务系统参考
 
+## 适用范围
+
+- 需要理解 RCS 任务类型、任务状态、事件类型、自动释放 / 自动事件规则，以及任务系统相关基础配置。
+- 用户描述偏向“这个任务类型是什么意思”“为什么这类任务会卡住”“任务系统这层应该先看什么”。
+
+## 历史复盘优先
+
+- 这页主要提供任务系统结构和配置语义，不直接替代历史故障根因分析。
+- 如果问题是“某次任务没派发 / 卡住 / 回执没回来”，应先固定任务发生时间，再结合当时的任务状态流、后端日志和从机动作证据复盘。
+- 不要只因为当前任务配置看起来正常，就排除历史那次任务在状态机、事件、回执链路上的异常。
+
+## 常见检索词
+
+- 任务系统
+- 任务类型
+- 任务为什么卡住
+- 任务状态含义
+- 事件类型
+- 自动释放
+- 自动事件
+- location_call 是什么
+- store_location 是什么
+- standby_shipment 是什么
+
 ## 任务类型
 
 | 类型标识 | 中文名 | 说明 |
@@ -125,3 +149,17 @@ pallet_pos_size_params:
 - `ROS 主机 -> backend_fastapi` 的 `PATCH /robots/way/point/`
 - Redis `global` 和 `{slave_id}` 频道
 - 从机 ROS topic `/ecbs_msgs/ecbs_result_agent`、`/ecbs_msgs/map_nodes_agent`
+
+## 推荐排查顺序
+
+1. 先确认问题属于“任务规则 / 配置理解”还是“历史任务执行异常”。
+2. 如果是历史问题，先固定任务时间、失败时间、恢复时间。
+3. 再判断卡在任务创建、调度派发、事件执行还是状态回执。
+4. 如果链路没走完，再跳到调用链和后端 / ROS 联合断点页继续查。
+
+## 关联总入口
+
+- [README.md](README.md)
+- [rcs-task-dispatch-failure.md](rcs-task-dispatch-failure.md)
+- [task-state-not-advancing.md](task-state-not-advancing.md)
+- [../error-tracing-methods.md](../error-tracing-methods.md)

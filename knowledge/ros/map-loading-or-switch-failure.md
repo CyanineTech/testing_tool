@@ -4,6 +4,12 @@
 - AMR 或 RCS 侧涉及地图加载、切换地图、重定位到新地图时失败。
 - 适用于“地图文件在但加载不上”“切图后定位异常”“换图后任务跑不动”。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - 切图后机器人定位消失或导航直接失败。
 - 地图加载接口返回成功，但实际 ROS 侧没有进入新地图状态。

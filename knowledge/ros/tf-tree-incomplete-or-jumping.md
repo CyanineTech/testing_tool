@@ -4,6 +4,12 @@
 - ROS 中 TF 树缺失、坐标系不连通、时间跳变导致定位或导航行为异常。
 - 适用于“TF 不完整”“jump back in time”“位置突然跳变”“导航控制异常”等问题。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - `tf_monitor` 显示某些坐标系没有持续更新。
 - 机器人位置、姿态或路径在地图中突然跳变。

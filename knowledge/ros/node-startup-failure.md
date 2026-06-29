@@ -4,6 +4,12 @@
 - 某个关键 ROS 节点启动失败、反复重启、在 `rosnode list` 中缺失或频繁僵尸化。
 - 适用于导航、定位、感知、底盘控制和业务动作节点异常。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - 机器人进模式后功能不完整，某些节点始终起不来。
 - `rosnode list` 缺少关键节点，或节点短时间反复出现又消失。

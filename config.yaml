@@ -8,7 +8,7 @@ llm:
   model: gpt-5.4-mini
   store_responses: false
   parallel_tool_calls: false
-  enable_tool_calls: false
+  enable_tool_calls: true
 
 ssh:
   user: robot

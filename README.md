@@ -1,7 +1,7 @@
 # CyanineTech AMR/RCS Troubleshooting Toolkit
 
 面向 CyanineTech AMR / RCS 场景的排障工具包。  
-当前仓库的第一版目标不是做成一个完美平台，而是先提供一套可上线、可持续迭代的排障基础设施：
+当前仓库优先服务于“故障已经发生，事后回溯原因”的场景，而不是只做当下状态体检。第一版目标不是做成一个完美平台，而是先提供一套可上线、可持续迭代的历史故障排查基础设施：
 
 1. 分层知识库
 2. 现场诊断脚本
@@ -17,6 +17,7 @@
 2. 飞书消息入站、线程内 follow-up 和回帖主链路已打通
 3. `knowledge/` 已完成分层重构，并已补多批高频知识页
 4. 本地排障脚本和知识召回链路可独立使用
+5. 历史故障场景已开始按“先找时间点 / 重启点，再回看日志和调用链”的方式收敛
 
 更完整的上线说明见：
 
@@ -60,7 +61,8 @@
 1. 普通新增页：优先直接新增 `md`
 2. 同步更新目录 `README.md`
 3. 补 `常见检索词`
-4. 尽量不改 Python，除非涉及新业务域或召回逻辑调整
+4. 默认写成“历史故障复盘 / 事后回溯”口径，除非明确是实时值班场景
+5. 尽量不改 Python，除非涉及新业务域或召回逻辑调整
 
 ## 快速开始
 
@@ -92,9 +94,17 @@ export OPENAI_API_KEY=...
 ```bash
 bash scripts/check_amr_status.sh <amr_ip_or_hostname>
 bash scripts/check_rcs_status.sh <rcs_ip_or_hostname>
+bash scripts/check_rcs_reboot_history.sh <rcs_ip_or_hostname>
 bash scripts/network_diag.sh <amr_ip_or_hostname>
 bash scripts/collect_logs.sh <amr_ip_or_hostname> [time_key]
 ```
+
+说明：
+
+1. `check_amr_status.sh` / `check_rcs_status.sh` 更适合做当前状态快照。
+2. 如果问题已经发生并且设备/主机重启过，优先走历史日志和重启回溯，不要直接把当前状态当成历史根因。
+3. `check_rcs_reboot_history.sh` 用于主机类“死机后重启恢复”场景，先看最近一次重启点，再回看上一个 `boot` 的 `supervisor`、`backend`、`docker`、`kernel` 日志。
+4. `collect_logs.sh` 现在支持带精确故障时间回溯到对应开机目录；对于 AMR 历史故障，建议按“开机目录与基础日志 -> 低层与运行态 -> caution / bag 与恢复动作”三阶段逐步收口，而不是只看首轮摘要。
 
 ### 4. 启动飞书服务
 
@@ -124,8 +134,8 @@ python -m feishu_agent.main
 这个仓库可以以 3 种方式使用：
 
 1. 只把它当知识库和脚本仓库
-2. 本地用 Copilot / Codex / Claude Code 直接读仓库辅助排障
-3. 通过 `feishu_agent` 接入飞书做线程式排障
+2. 本地用 Copilot / Codex / Claude Code 直接读仓库辅助做历史故障复盘
+3. 通过 `feishu_agent` 接入飞书做线程式历史排障
 
 ## 安全与提交注意事项
 

@@ -1,5 +1,32 @@
 # 系统架构
 
+## 适用范围
+
+- 需要先理解主从机、后端、ROS、Docker、网络和任务链路之间的关系。
+- 用户描述偏向“这个问题大概属于哪一层”“主从怎么通信”“某服务在什么位置”。
+
+## 历史复盘优先
+
+- 这页主要用于帮助定位故障层级，不直接给出根因。
+- 历史故障排查时，先用架构关系判断应回看哪一跳，再去对应日志和知识页取证。
+- 不要只因为某个当前服务在线，就排除它在历史时间窗口内异常过。
+
+## 常见检索词
+
+- 系统架构
+- 主从机架构
+- RCS 和 AMR 怎么通信
+- 服务在哪一层
+- 调度链路
+- ROS 和后端关系
+- Docker 服务位置
+
+## 推荐排查顺序
+
+1. 先判断问题更像在 AMR、网络、RCS 后端、任务系统还是 CBS。
+2. 再根据这一层去找对应知识目录和历史日志入口。
+3. 如果跨层联动，再沿主从链路逐跳回看证据。
+
 ## 整体架构
 
 ```
@@ -218,6 +245,13 @@ Docker 数据目录: `/docker_data/docker/`
 | 容器名 | 镜像 | 功能 |
 |--------|------|------|
 | cy_yolo_human_detect | stigliew/cy_pose | YOLO 人体检测 |
+
+## 关联总入口
+
+- [README.md](README.md)
+- [common-faults.md](common-faults.md)
+- [log-paths.md](log-paths.md)
+- [error-tracing-methods.md](error-tracing-methods.md)
 | cy_yolo_crop_pallet2 | stigliew/cy_pose | YOLO 取货托盘识别 |
 
 ## 服务管理

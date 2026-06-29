@@ -115,6 +115,15 @@ class CliSshBackend(SshBackend):
 
     def _wrap_remote_command(self, command: str) -> str:
         normalized = command.strip()
+        if normalized == "rosnode list" or normalized.startswith("rosnode info ") or normalized.startswith("rostopic "):
+            ros_prelude = (
+                "source /opt/ros/noetic/setup.bash >/dev/null 2>&1 || true; "
+                "[ -f /home/robot/catkin_ws/devel/setup.bash ] && source /home/robot/catkin_ws/devel/setup.bash >/dev/null 2>&1 || true; "
+            )
+            if normalized.startswith("rostopic echo "):
+                timeout_seconds = max(1, int(os.getenv("FEISHU_SSH_ROSTOPIC_TIMEOUT_SECONDS", str(self.settings.ssh.timeout_seconds))))
+                return f"{ros_prelude}timeout --signal=TERM {timeout_seconds}s {normalized}"
+            return f"{ros_prelude}{normalized}"
         if normalized.startswith("rostopic echo "):
             timeout_seconds = max(1, int(os.getenv("FEISHU_SSH_ROSTOPIC_TIMEOUT_SECONDS", str(self.settings.ssh.timeout_seconds))))
             return f"timeout --signal=TERM {timeout_seconds}s {normalized}"

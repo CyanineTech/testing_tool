@@ -8,6 +8,18 @@
 - CAN 通信中断、EB 板卡复位、总线数据停止发布。
 - 用户描述偏向“设备掉了”“驱动断了”“总线不稳”“重连后恢复”。
 
+默认处理方式：
+
+1. 如果故障已经恢复，优先回看故障发生时的 `dmesg`、`default.launch`、`mobile_base.launch`、caution 和 bag。
+2. 不要直接把当前 `lsusb -t` 或当前 `can0` 状态当作历史掉线的唯一证据。
+3. 当前状态只适合作为“是否已恢复”的补充判断。
+
+## 历史复盘优先
+
+- 硬件与总线问题如果已经恢复，优先固定故障发生时的动作、震动、温升和对应日志时间点。
+- 不要直接拿当前 `lsusb -t`、当前 `can0` 或当前设备在线状态替代历史掉线证据。
+- 应优先回看 `dmesg`、`default.launch`、`mobile_base.launch`、bag 和现场物理条件。
+
 ## 常见检索词
 
 - USB 掉线
@@ -35,6 +47,8 @@
 - [sensor-power-or-connector-instability.md](sensor-power-or-connector-instability.md)
 - [usb-hub-or-dock-emi-instability.md](usb-hub-or-dock-emi-instability.md)
 - [history-case-usb-can-cascade-failure.md](history-case-usb-can-cascade-failure.md)
+- [history-case-vibration-causes-intermittent-drop.md](history-case-vibration-causes-intermittent-drop.md)
+- [history-case-warmup-triggers-link-instability.md](history-case-warmup-triggers-link-instability.md)
 - [forklift-model-hardware-differences.md](forklift-model-hardware-differences.md)
 - [mecanum-model-differences.md](mecanum-model-differences.md)
 - [ct_agv_04-or-forklift-parameter-sensitivity.md](ct_agv_04-or-forklift-parameter-sensitivity.md)

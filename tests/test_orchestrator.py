@@ -85,6 +85,55 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(response.route, "amr")
         self.assertIn("请补充设备/IP 或主机名", response.reply_text)
 
+    def test_follow_up_keeps_previous_target_and_adds_guardrail(self) -> None:
+        conversation_key = "chat_followup_guard:root_followup_guard"
+        self.orchestrator.session_store.update(
+            conversation_key,
+            route="rcs",
+            target="192.168.1.170",
+            time_key="",
+            step_index=1,
+            evidence=["local evidence"],
+            last_doc_candidates=["knowledge/backend/rcs-backend-service-failure.md"],
+            last_read_docs=["knowledge/backend/rcs-backend-service-failure.md"],
+            last_report="已收到：RCS 主机问题\n摘要：继续检查中。",
+            last_reply_kind="progress",
+            last_payload=_build_payload("检查刚刚主机192.168.1.170为什么死机了", chat_id="chat_followup_guard", root_id="root_followup_guard"),
+        )
+
+        request = CaseRequest(
+            text="继续查 supervisor 为什么没运行，查 MySQL 异常的具体原因",
+            payload=_build_payload("继续查 supervisor 为什么没运行，查 MySQL 异常的具体原因", chat_id="chat_followup_guard", root_id="root_followup_guard"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_followup_guard",
+        )
+
+        captured_request = None
+
+        def _capture_request(provider_request):
+            nonlocal captured_request
+            captured_request = provider_request
+            return ProviderResult(
+                provider_name="copilotcli",
+                summary="继续检查 RCS 主机服务链路",
+                next_steps=("检查 supervisor",),
+                root_cause="服务链路异常",
+                severity="错误",
+                evidence=("目标保持为 192.168.1.170",),
+                confidence="medium",
+            )
+
+        with patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
+            patch.object(self.orchestrator.provider_manager, "run_review", side_effect=_capture_request):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIsNotNone(captured_request)
+        self.assertEqual(response.route, "rcs")
+        self.assertIn("目标：192.168.1.170", captured_request.context)
+        self.assertIn("沿用上一轮目标", captured_request.context)
+        self.assertEqual(captured_request.target, "192.168.1.170")
+
     def test_amr_missing_target_prompts_clarification(self) -> None:
         request = CaseRequest(
             text="AMR 叉货有问题",
@@ -189,6 +238,484 @@ class OrchestratorTests(unittest.TestCase):
         self.assertIn("调度中心队列阻塞", response.reply_text)
         self.assertIn("错误", response.reply_text)
 
+    def test_rcs_auto_diag_collects_deeper_evidence_when_mysql_and_supervisor_are_abnormal(self) -> None:
+        request = CaseRequest(
+            text="主机192.168.1.170当前后端异常，检查原因",
+            payload=_build_payload("主机192.168.1.170当前后端异常，检查原因", chat_id="chat_rcs_deep", root_id="root_rcs_deep"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_rcs_deep",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "rcs",
+            "target": "192.168.1.170",
+            "executed": [{"command": "bash scripts/check_rcs_status.sh 192.168.1.170", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "RCS 侧存在服务异常或端口不可用",
+            "evidence": "Supervisor 未运行\nHTTP状态码: 000\n[FAIL] 后端 API 无响应\n[FAIL] MySQL 异常",
+            "text": request.text,
+        }
+
+        fake_remote_result = type(
+            "FakeSandboxResult",
+            (),
+            {
+                "command": "journalctl -u supervisor -n 80 --no-pager",
+                "stdout": "supervisor.service: start request repeated too quickly",
+                "stderr": "",
+                "returncode": 0,
+            },
+        )()
+
+        with patch.dict("feishu_agent.core.orchestrator.os.environ", {"FEISHU_ENABLE_LOCAL_DIAG": "1"}, clear=False), \
+            patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": [fake_remote_result]}) as mocked_collect:
+            response = self.orchestrator.handle_case(request)
+
+        mocked_collect.assert_called_once()
+        called_commands = mocked_collect.call_args.kwargs["commands"]
+        self.assertIn("systemctl status supervisor --no-pager", called_commands)
+        self.assertIn("docker logs docker-backend_1 --tail 80", called_commands)
+        self.assertIn("docker logs docker-mysql_5_7-1 --tail 80", called_commands)
+        self.assertIn("journalctl -k -n 80 --no-pager", called_commands)
+        self.assertIn("supervisor 或其托管服务存在频繁拉起失败迹象。", response.reply_text)
+
+    def test_provider_root_cause_with_execute_evidence_overrides_generic_local_root_cause(self) -> None:
+        request = CaseRequest(
+            text="主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因",
+            payload=_build_payload("主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因", chat_id="chat_rcs_provider_override", root_id="root_rcs_provider_override"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_rcs_provider_override",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "rcs",
+            "target": "192.168.1.170",
+            "executed": [{"command": "bash scripts/check_rcs_status.sh 192.168.1.170", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "RCS 侧存在服务异常或端口不可用",
+            "evidence": "Supervisor 未运行\nHTTP状态码: 000\n[FAIL] 后端 API 无响应",
+            "text": request.text,
+        }
+
+        provider_result = ProviderResult(
+            provider_name="openai_sdk",
+            summary="已根据远程取证补齐主机服务状态。",
+            next_steps=("检查 3737 端口对应进程",),
+            root_cause="RCS 主机后端 API 未监听，当前是主业务服务未拉起或已退出，不是单纯接口慢。",
+            severity="错误",
+            evidence=("provider_execute[curl -s -S -m 3 http://127.0.0.1:3737/infos/ros/]: curl: (7) Failed to connect",),
+            confidence="medium",
+        )
+
+        fake_remote_result = type(
+            "FakeSandboxResult",
+            (),
+            {
+                "command": "journalctl -u supervisor -n 80 --no-pager",
+                "stdout": "supervisor.service: start request repeated too quickly",
+                "stderr": "",
+                "returncode": 0,
+            },
+        )()
+
+        with patch.dict("feishu_agent.core.orchestrator.os.environ", {"FEISHU_ENABLE_LOCAL_DIAG": "1"}, clear=False), \
+            patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": [fake_remote_result]}), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
+            patch.object(self.orchestrator.provider_manager, "run_review", return_value=provider_result):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("后端 API 未监听", response.reply_text)
+        self.assertIn("3737 端口", response.reply_text)
+        self.assertIn("已根据远程取证补齐主机服务状态。", response.reply_text)
+
+    def test_historical_rcs_does_not_mix_in_current_state_deeper_collection(self) -> None:
+        request = CaseRequest(
+            text="主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因",
+            payload=_build_payload("主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因", chat_id="chat_rcs_history", root_id="root_rcs_history"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_rcs_history",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "rcs",
+            "target": "192.168.1.170",
+            "executed": [{"command": "bash scripts/check_rcs_reboot_history.sh 192.168.1.170", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "重启前 3737 端口未监听，且 supervisor 日志显示 master_backend / cbs_master_server 异常退出或等待结束；应优先排查 backend / supervisor 拉起链路。",
+            "evidence": "最近一次重启前的 boot 时间：2026-06-14 21:40:52",
+            "text": request.text,
+        }
+
+        with patch.dict("feishu_agent.core.orchestrator.os.environ", {"FEISHU_ENABLE_LOCAL_DIAG": "1"}, clear=False), \
+            patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence") as mocked_collect:
+            response = self.orchestrator.handle_case(request)
+
+        mocked_collect.assert_not_called()
+        self.assertIn("check_rcs_reboot_history.sh", response.reply_text)
+        self.assertIn("重启前 3737 端口未监听", response.reply_text)
+
+    def test_historical_rcs_keeps_local_reboot_root_cause_when_provider_summary_is_generic(self) -> None:
+        request = CaseRequest(
+            text="主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因",
+            payload=_build_payload("主机192.168.1.170今天出现了一次死机，重启才恢复正常检查原因", chat_id="chat_rcs_hist_provider", root_id="root_rcs_hist_provider"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_rcs_hist_provider",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "rcs",
+            "target": "192.168.1.170",
+            "executed": [{"command": "bash scripts/check_rcs_reboot_history.sh 192.168.1.170", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "重启前 3737 端口未监听，且 supervisor 日志显示 master_backend / cbs_master_server 异常退出或等待结束；应优先排查 backend / supervisor 拉起链路。",
+            "evidence": "最近一次重启前的 boot 时间：2026-06-14 21:40:52",
+            "text": request.text,
+        }
+
+        provider_result = ProviderResult(
+            provider_name="openai_sdk",
+            summary="已根据远程取证补齐主机服务状态。",
+            next_steps=("继续核对 supervisor、backend、mysql 的启动日志。",),
+            root_cause="RCS 主机关键服务链路异常。",
+            severity="错误",
+            evidence=(),
+            confidence="medium",
+        )
+
+        with patch.dict("feishu_agent.core.orchestrator.os.environ", {"FEISHU_ENABLE_LOCAL_DIAG": "1"}, clear=False), \
+            patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
+            patch.object(self.orchestrator.provider_manager, "run_review", return_value=provider_result):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("重启前 3737 端口未监听", response.reply_text)
+        self.assertIn("应优先排查 backend / supervisor 拉起链路", response.reply_text)
+
+    def test_historical_amr_collects_deeper_evidence_before_finishing(self) -> None:
+        request = CaseRequest(
+            text="排查从机 leefung-t9 在 2026-06-13 01:14:15 的掉线故障",
+            payload=_build_payload("排查从机 leefung-t9 在 2026-06-13 01:14:15 的掉线故障", chat_id="chat_hist_amr_deeper", root_id="root_hist_amr_deeper"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_deeper",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "leefung-t9",
+            "executed": [{"command": "bash scripts/collect_logs.sh leefung-t9 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "警告",
+            "root_cause": "未找到 2026_06_13 对应的 ROS 原始日志，现有文本证据不足，无法判定具体前/后雷达和直接原因",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04",
+            "text": request.text,
+        }
+
+        deeper_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "WARNING: topic [/low_level_error] does not appear to be published yet\ncommand timed out after 8s\n", "returncode": 124})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/move_base\n/amcl\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/$(ls -1 /home/robot/log/not_permanent/ 2>/dev/null | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S 2>/dev/null)\" '$1 <= target' | tail -1)/mobile_base.launch 2>/dev/null | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": deeper_results}), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("底层嵌入式 / CAN 链路异常", response.reply_text)
+        self.assertIn("rostopic echo /low_level_error -n1", response.reply_text)
+        self.assertIn("rosnode list", response.reply_text)
+
+    def test_historical_amr_stage3_uses_caution_and_manual_recovery_clues(self) -> None:
+        request = CaseRequest(
+            text="排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了",
+            payload=_build_payload("排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了", chat_id="chat_hist_amr_stage3", root_id="root_hist_amr_stage3"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_stage3",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "leefung-t9",
+            "executed": [{"command": "bash scripts/collect_logs.sh leefung-t9 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "警告",
+            "root_cause": "未找到 2026_06_13 对应的 ROS 原始日志，现有文本证据不足，无法判定具体前/后雷达和直接原因",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04\ncaution_T9_20260613_011430.bag.zip",
+            "text": request.text,
+        }
+
+        locator_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/move_base\n/amcl\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "ls -1 /home/robot/log/not_permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1", "stdout": "2026_06_12-14_05_04\n", "stderr": "", "returncode": 0})(),
+        ]
+        deeper_results = [
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage3_results = [
+            type("Result", (), {"command": "find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20", "stdout": "/home/robot/autobag/caution_T9_20260613_011430.bag.zip\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80", "stdout": "switch to manual\n", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", side_effect=[{"results": locator_results}, {"results": deeper_results}, {"results": stage3_results}, {"results": []}, {"results": []}]), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("手动 / 恢复动作应视为掩盖首因的派生过程", response.reply_text)
+        self.assertIn("caution_T9_20260613_011430.bag.zip", response.reply_text)
+
+    def test_historical_amr_stage4_builds_second_level_timeline(self) -> None:
+        request = CaseRequest(
+            text="排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了",
+            payload=_build_payload("排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了", chat_id="chat_hist_amr_stage4", root_id="root_hist_amr_stage4"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_stage4",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "leefung-t9",
+            "executed": [{"command": "bash scripts/collect_logs.sh leefung-t9 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "警告",
+            "root_cause": "未找到 2026_06_13 对应的 ROS 原始日志，现有文本证据不足，无法判定具体前/后雷达和直接原因",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04\ncaution_T9_20260613_011430.bag.zip",
+            "text": request.text,
+        }
+
+        locator_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/move_base\n/amcl\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "ls -1 /home/robot/log/not_permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1", "stdout": "2026_06_12-14_05_04\n", "stderr": "", "returncode": 0})(),
+        ]
+        deeper_results = [
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage3_results = [
+            type("Result", (), {"command": "find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20", "stdout": "/home/robot/autobag/caution_T9_20260613_011430.bag.zip\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80", "stdout": "switch to manual\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage4_results = [
+            type("Result", (), {"command": "awk mobile_base exact", "stdout": "[1781284454.100000000] connection dropped\n[1781284455.200000000] reset embedded system\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "awk state_monitor exact", "stdout": "[1781284461.000000000] switch to manual\n[1781284463.000000000] pause\n", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", side_effect=[{"results": locator_results}, {"results": deeper_results}, {"results": stage3_results}, {"results": stage4_results}, {"results": []}]), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("首发候选", response.reply_text)
+        self.assertIn("恢复/暂停线索", response.reply_text)
+
+    def test_historical_amr_stage5_checks_kernel_and_swap_before_concluding(self) -> None:
+        request = CaseRequest(
+            text="排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了",
+            payload=_build_payload("排查从机 leefung-t9 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了", chat_id="chat_hist_amr_stage5", root_id="root_hist_amr_stage5"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_stage5",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "leefung-t9",
+            "executed": [{"command": "bash scripts/collect_logs.sh leefung-t9 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "警告",
+            "root_cause": "未找到 2026_06_13 对应的 ROS 原始日志，现有文本证据不足，无法判定具体前/后雷达和直接原因",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04\ncaution_T9_20260613_011430.bag.zip",
+            "text": request.text,
+        }
+
+        locator_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/move_base\n/amcl\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "ls -1 /home/robot/log/not_permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1", "stdout": "2026_06_12-14_05_04\n", "stderr": "", "returncode": 0})(),
+        ]
+        deeper_results = [
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage3_results = [
+            type("Result", (), {"command": "find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20", "stdout": "/home/robot/autobag/caution_T9_20260613_011430.bag.zip\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80", "stdout": "switch to manual\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage4_results = [
+            type("Result", (), {"command": "awk mobile_base exact", "stdout": "[1781284454.100000000] connection dropped\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage5_results = [
+            type("Result", (), {"command": "journalctl -k --since '2026-06-13 00:44:15' --until '2026-06-13 01:44:15' --no-pager", "stdout": "", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "swapon --show", "stdout": "", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", side_effect=[{"results": locator_results}, {"results": deeper_results}, {"results": stage3_results}, {"results": stage4_results}, {"results": stage5_results}]) as mocked_collect, \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertEqual(mocked_collect.call_count, 5)
+        stage5_commands = mocked_collect.call_args_list[-1].kwargs["commands"]
+        self.assertIn("swapon --show", stage5_commands)
+        self.assertIn("journalctl -k --since '2026-06-13 00:44:15' --until '2026-06-13 01:44:15' --no-pager", stage5_commands)
+        self.assertTrue(any("find /home/robot/log/permanent/" in item and "date -d \"2026-06-13 01:14:15\"" in item and "error_monitor_server.launch" in item for item in stage5_commands))
+        self.assertIn("当前证据不支持把 swap 作为首发根因", response.reply_text)
+
+    def test_historical_amr_auto_closure_builds_first_cause_and_derived_state(self) -> None:
+        request = CaseRequest(
+            text="排查从机 v001 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了",
+            payload=_build_payload("排查从机 v001 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了", chat_id="chat_hist_amr_closure", root_id="root_hist_amr_closure"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_closure",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "v001",
+            "executed": [{"command": "bash scripts/collect_logs.sh v001 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "同时间段已存在 caution / bag 线索，且底层链路异常与扫描异常相互印证；应优先按首发底层异常解释本次故障，而不是只看恢复后的状态。",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04\ncaution_v001_20260613_011430.bag.zip",
+            "text": request.text,
+        }
+
+        locator_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "WARNING: topic [/low_level_error] does not appear to be published yet\n", "returncode": 124})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/motor_control\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "ls -1 /home/robot/log/not_permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1", "stdout": "2026_06_12-14_05_04\n", "stderr": "", "returncode": 0})(),
+        ]
+        deeper_results = [
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage3_results = [
+            type("Result", (), {"command": "find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20", "stdout": "/home/robot/autobag/caution_v001_20260613_011430.bag.zip\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80", "stdout": "switch to manual\npause\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage4_results = [
+            type("Result", (), {"command": "awk mobile_base exact", "stdout": "[1781284454.100000000] connection dropped\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "awk state_monitor exact", "stdout": "[1781284461.000000000] switch to manual\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage5_results = [
+            type("Result", (), {"command": "find /home/robot/log/permanent/$(ls -1 /home/robot/log/permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1) -maxdepth 3 \\( -type f -o -type l \\) -name 'error_monitor_server.launch' -exec tail -n 120 {} \\;", "stdout": "[1781284458.000000000] Register ID: 32000101 trigger\n", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", side_effect=[{"results": locator_results}, {"results": deeper_results}, {"results": stage3_results}, {"results": stage4_results}, {"results": stage5_results}]), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("自动收口显示：先出现", response.reply_text)
+        self.assertIn("switch to manual", response.reply_text)
+        self.assertIn("Register ID: 32000101 trigger", response.reply_text)
+        self.assertNotIn("核对 01:14:10-01:14:30 期间的 mobile_base.launch", response.reply_text)
+        self.assertIn("优先排查 CAN / EB / driver 硬件链路", response.reply_text)
+        self.assertIn("若有录包或 bag，优先核对 01:14:10-01:14:25", response.reply_text)
+
+    def test_historical_amr_auto_closure_hides_provider_root_cause_override(self) -> None:
+        request = CaseRequest(
+            text="排查从机 v001 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了",
+            payload=_build_payload("排查从机 v001 在 2026-06-13 01:14:15 的故障，现场后来切手动恢复了", chat_id="chat_hist_amr_provider_hide", root_id="root_hist_amr_provider_hide"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_hist_amr_provider_hide",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "v001",
+            "executed": [{"command": "bash scripts/collect_logs.sh v001 '' '2026-06-13 00:44:15' '2026-06-13 01:44:15' '2026-06-13 01:14:15'", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "同时间段已存在 caution / bag 线索，且底层链路异常与扫描异常相互印证；应优先按首发底层异常解释本次故障，而不是只看恢复后的状态。",
+            "evidence": "/home/robot/log/not_permanent/2026_06_12-14_05_04\ncaution_v001_20260613_011430.bag.zip",
+            "text": request.text,
+        }
+
+        locator_results = [
+            type("Result", (), {"command": "rostopic echo /low_level_error -n1", "stdout": "", "stderr": "WARNING: topic [/low_level_error] does not appear to be published yet\n", "returncode": 124})(),
+            type("Result", (), {"command": "rosnode list", "stdout": "/rosout\n/motor_control\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "ls -1 /home/robot/log/not_permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1", "stdout": "2026_06_12-14_05_04\n", "stderr": "", "returncode": 0})(),
+        ]
+        deeper_results = [
+            type("Result", (), {"command": "grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120", "stdout": "connection dropped\nreset embedded system\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage3_results = [
+            type("Result", (), {"command": "find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20", "stdout": "/home/robot/autobag/caution_v001_20260613_011430.bag.zip\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80", "stdout": "switch to manual\npause\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage4_results = [
+            type("Result", (), {"command": "awk mobile_base exact", "stdout": "[1781284454.100000000] connection dropped\n", "stderr": "", "returncode": 0})(),
+            type("Result", (), {"command": "awk state_monitor exact", "stdout": "[1781284461.000000000] switch to manual\n", "stderr": "", "returncode": 0})(),
+        ]
+        stage5_results = [
+            type("Result", (), {"command": "find /home/robot/log/permanent/$(ls -1 /home/robot/log/permanent/ | awk -v target=\"$(date -d \"2026-06-13 01:14:15\" +%Y_%m_%d-%H_%M_%S)\" '$1 <= target' | tail -1) -maxdepth 3 \\( -type f -o -type l \\) -name 'error_monitor_server.launch' -exec tail -n 120 {} \\;", "stdout": "[1781284458.000000000] Register ID: 32000101 trigger\n", "stderr": "", "returncode": 0})(),
+        ]
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", side_effect=[{"results": locator_results}, {"results": deeper_results}, {"results": stage3_results}, {"results": stage4_results}, {"results": stage5_results}]), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
+            patch.object(
+                self.orchestrator.provider_manager,
+                "run_review",
+                return_value=ProviderResult(
+                    provider_name="openai_sdk",
+                    summary="最可能根因是 mobile_base 相关底层链路异常。",
+                    next_steps=("检查 01:14:15 前后 mobile_base.launch",),
+                    root_cause="最可能根因是 mobile_base 相关底层链路异常。",
+                    severity="错误",
+                    evidence=(),
+                    confidence="high",
+                ),
+            ):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("自动收口显示：先出现", response.reply_text)
+        self.assertNotIn("最可能根因是 mobile_base 相关底层链路异常。", response.reply_text)
+
+    def test_relative_historical_amr_enables_local_diag(self) -> None:
+        request = CaseRequest(
+            text="刚刚从机 leefung-t9 为什么掉线了",
+            payload=_build_payload("刚刚从机 leefung-t9 为什么掉线了", chat_id="chat_recent_amr", root_id="root_recent_amr"),
+            sender_open_id="ou_123",
+            sender_display_name="张三",
+            message_id="msg_recent_amr",
+        )
+
+        diag_report = {
+            "need_more_info": False,
+            "route": "amr",
+            "target": "leefung-t9",
+            "executed": [{"command": "bash scripts/collect_logs.sh leefung-t9 '' '2026-06-15 12:00:00' '2026-06-15 20:00:00'", "returncode": 0}],
+            "severity": "错误",
+            "root_cause": "前雷达 / 前向 LaserScan 在 recent_8h 相关历史证据中存在掉线或数据异常",
+            "evidence": "LaserScan front 掉线",
+            "text": request.text,
+        }
+
+        with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": []}), \
+            patch.object(self.orchestrator.provider_manager, "select_provider", return_value=None):
+            response = self.orchestrator.handle_case(request)
+
+        self.assertIn("前向扫描链路", response.reply_text)
+        self.assertIn("collect_logs.sh", response.reply_text)
+
     def test_time_scoped_amr_case_runs_local_diag_and_ai_review(self) -> None:
         request = CaseRequest(
             text="看下从机leefung-t9在6月7日掉线的是哪个雷达，什么原因导致的",
@@ -225,6 +752,7 @@ class OrchestratorTests(unittest.TestCase):
             )
 
         with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": []}), \
             patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
             patch.object(self.orchestrator.provider_manager, "run_review", side_effect=_capture_request):
             response = self.orchestrator.handle_case(request)
@@ -259,6 +787,7 @@ class OrchestratorTests(unittest.TestCase):
         }
 
         with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": []}), \
             patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
             patch.object(
                 self.orchestrator.provider_manager,
@@ -300,6 +829,7 @@ class OrchestratorTests(unittest.TestCase):
         }
 
         with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": []}), \
             patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
             patch.object(
                 self.orchestrator.provider_manager,
@@ -344,6 +874,7 @@ class OrchestratorTests(unittest.TestCase):
         }
 
         with patch("feishu_agent.core.orchestrator.diagnose_route", return_value=diag_report), \
+            patch("feishu_agent.core.orchestrator.collect_evidence", return_value={"results": []}), \
             patch.object(self.orchestrator.provider_manager, "select_provider", return_value=object()), \
             patch.object(
                 self.orchestrator.provider_manager,
@@ -466,8 +997,8 @@ class OrchestratorTests(unittest.TestCase):
 
     def test_orchestrator_uses_topk_relevant_docs(self) -> None:
         request = CaseRequest(
-            text="AMR CAN 通信异常，雷达和底层总线是否异常",
-            payload=_build_payload("AMR CAN 通信异常，雷达和底层总线是否异常"),
+            text="看下从机 leefung-t9 当前 CAN 通信异常，雷达和底层总线是否异常",
+            payload=_build_payload("看下从机 leefung-t9 当前 CAN 通信异常，雷达和底层总线是否异常"),
             sender_open_id="ou_123",
             sender_display_name="张三",
             message_id="msg_topk",
@@ -479,7 +1010,14 @@ class OrchestratorTests(unittest.TestCase):
         session = self.orchestrator.session_store.get(response.conversation_key)
         self.assertLessEqual(len(session.last_doc_candidates), 3)
         self.assertEqual(session.last_read_docs, [])
-        self.assertTrue(any("error-codes" in path or "can" in path for path in session.last_doc_candidates))
+        self.assertTrue(
+            any(
+                "error-codes" in path
+                or "can" in path
+                or "hardware_bus" in path
+                for path in session.last_doc_candidates
+            )
+        )
 
     def test_provider_knowledge_reads_are_tracked_separately(self) -> None:
         request = CaseRequest(
@@ -876,6 +1414,27 @@ class KnowledgeProtocolTests(unittest.TestCase):
         docs = select_relevant_docs("摄像头离线并伴随 uvcvideo 和 pcan 重连", "amr", limit=4)
 
         self.assertIn("knowledge/hardware_bus/usb-device-troubleshooting.md", docs)
+        self.assertIn("knowledge/hardware_bus/can-eb-communication-abnormal.md", docs)
+
+    def test_select_relevant_docs_matches_location_tf_history_mix(self) -> None:
+        docs = select_relevant_docs("刚刚定位漂移并伴随 tf 跳变和地图不匹配", "amr", limit=5)
+
+        self.assertIn("knowledge/ros/location-loss.md", docs)
+        self.assertTrue(
+            any(
+                path in docs
+                for path in [
+                    "knowledge/ros/tf-tree-incomplete-or-jumping.md",
+                    "knowledge/ros/history-case-location-ok-but-map-or-tf-mismatch.md",
+                ]
+            )
+        )
+
+    def test_select_relevant_docs_matches_task_state_feedback_mix(self) -> None:
+        docs = select_relevant_docs("任务卡住了，状态不推进，事件没回执", "amr", limit=5)
+
+        self.assertIn("knowledge/task_dispatch/task-state-not-advancing.md", docs)
+        self.assertIn("knowledge/task_dispatch/history-case-task-sent-but-no-state-feedback.md", docs)
 
     def test_select_relevant_docs_matches_call_chain_monitoring(self) -> None:
         docs = select_relevant_docs("RCS 调用链监控 grpc redis topic ecbs", "rcs", limit=4)
@@ -939,15 +1498,17 @@ class FormatterTests(unittest.TestCase):
             provider_evidence=["模型提示 CAN 侧异常"],
         )
 
-        self.assertIn("**故障类别**：amr", report)
-        self.assertIn("**目标**：192.168.1.250", report)
-        self.assertIn("**严重程度**：错误", report)
-        self.assertIn("**根因分析**：CAN 链路异常", report)
+        self.assertIn("**1. 故障结论**", report)
+        self.assertIn("对象：amr / 192.168.1.250", report)
+        self.assertIn("严重程度：错误", report)
+        self.assertIn("**2. 根因**", report)
+        self.assertIn("CAN 链路异常", report)
+        self.assertIn("**3. 建议**", report)
+        self.assertIn("**4. 证据**", report)
         self.assertIn("rostopic echo /low_level_error -n1", report)
         self.assertIn("CAN bus停止发布数据", report)
         self.assertIn("建议继续检查底层链路", report)
-        self.assertIn("**补充判断**：", report)
-        self.assertIn("补充证据", report)
+        self.assertIn("底层链路抖动", report)
         self.assertIn("检查 CAN 总线", report)
         self.assertNotIn("provider：", report)
         self.assertNotIn("confidence：", report)
@@ -1016,6 +1577,92 @@ class FormatterTests(unittest.TestCase):
         self.assertIn("本地诊断执行：bash scripts/collect_logs.sh leefung-t9 2026_06_07 (rc=0)", report)
         self.assertIn("知识参考：knowledge/error-tracing-methods.md: default.launch 经常可以直接看到谁的信号没了。", report)
         self.assertNotIn("{'type':", report)
+
+    def test_case_report_summarizes_provider_execute_lines_for_human_reading(self) -> None:
+        report = format_case_report(
+            route="rcs",
+            target="192.168.1.170",
+            severity="错误",
+            root_cause="RCS 主机后端 API 未监听，当前是主业务服务未拉起或已退出，不是单纯接口慢。",
+            executed=[{"command": "bash scripts/check_rcs_status.sh 192.168.1.170", "returncode": 0}],
+            evidence=[
+                "provider_execute[curl -s -S -m 3 http://127.0.0.1:3737/infos/ros/]: rc=7 curl: (7) Failed to connect to 127.0.0.1 port 3737: Connection refused",
+                "provider_execute[docker exec docker-mysql_5_7-1 mysqladmin ping]: rc=0 mysqladmin: connect to server at 'localhost' failed error: 'Access denied for user 'root'@'localhost' (using password: NO)'",
+                "provider_execute[journalctl -k -n 80 --no-pager]: rc=0 -- Logs begin at Thu 2026-05-07 18:23:04 CST -- -- No entries --",
+            ],
+            docs=[],
+            provider_summary="已根据远程取证补齐主机服务状态。",
+            provider_root_cause="RCS 主机后端 API 未监听，当前是主业务服务未拉起或已退出，不是单纯接口慢。",
+            provider_next_steps=["检查 3737 端口对应进程"],
+        )
+
+        self.assertIn("后端 API 3737 端口连接被拒绝，说明服务当前未监听。", report)
+        self.assertIn("MySQL 容器在运行，但当前探活账号/认证方式不匹配。", report)
+        self.assertIn("kernel 日志未见明显系统级报错。", report)
+        self.assertNotIn("provider_report:", report)
+
+    def test_case_report_summarizes_amr_history_execute_lines_for_human_reading(self) -> None:
+        report = format_case_report(
+            route="amr",
+            target="v001",
+            severity="错误",
+            root_cause="同时间段已存在 caution / bag 线索，且底层链路异常与扫描异常相互印证；应优先按首发底层异常解释本次故障，而不是只看恢复后的状态。",
+            executed=[{"command": "bash scripts/collect_logs.sh v001 2026-06-13 00:44:15 2026-06-13 01:44:15 2026-06-13 01:14:15", "returncode": 0}],
+            evidence=[
+                "provider_execute[grep -i 'error\\|fail\\|exception\\|warn\\|usb\\|can\\|eb\\|motor\\|driver\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/mobile_base.launch | tail -n 120]: rc=0 connection dropped reset embedded system",
+                "provider_execute[grep -i 'error\\|fail\\|exception\\|warn\\|laser\\|scan\\|lidar\\|radar\\|usb\\|can\\|eb\\|motor\\|connection dropped\\|reset embedded system' /home/robot/log/not_permanent/2026_06_12-14_05_04/default.launch | tail -n 120]: rc=0 registerError2 call timeout laser scan",
+                "provider_execute[find /home/robot/autobag -maxdepth 1 -type f | grep '20260613' | tail -20]: rc=0 /home/robot/autobag/caution_v001_20260613_004555.bag.zip",
+                "provider_execute[grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80]: rc=0 switch to manual",
+                "provider_execute[grep -i 'manual\\|auto\\|release\\|recover\\|resume\\|retry\\|hand' /home/robot/log/not_permanent/2026_06_12-14_05_04/state_monitor_wrapper.launch | tail -n 80]: rc=0 switch to manual",
+            ],
+            docs=[],
+        )
+
+        self.assertIn("mobile_base.launch 在故障时段出现 CAN / EB / 驱动链路异常，优先指向底层通信失稳。", report)
+        self.assertIn("default.launch 在故障时段出现扫描链路或错误监控异常，需结合底层链路判断是否为派生表现。", report)
+        self.assertIn("同时间段存在 caution / bag 证据", report)
+        self.assertIn("state_monitor_wrapper.launch 记录到手动 / 恢复 / 重试相关线索，应把它视为恢复动作而不是直接根因。", report)
+        self.assertEqual(report.count("state_monitor_wrapper.launch 记录到手动 / 恢复 / 重试相关线索，应把它视为恢复动作而不是直接根因。"), 1)
+
+    def test_case_report_humanizes_provider_mapping_summary(self) -> None:
+        report = format_case_report(
+            route="amr",
+            target="v001",
+            severity="错误",
+            root_cause="底层通信异常",
+            executed=[],
+            evidence=[],
+            docs=[],
+            provider_summary="{'primary': '底层运动控制通信异常。', 'analysis': ['mobile_base 先报 CAN 异常。', '未见 OOM/swap 证据。']}",
+            provider_root_cause="{'primary': '优先怀疑 CAN / EB 链路。'}",
+        )
+
+        self.assertIn("优先怀疑 CAN / EB 链路。", report)
+        self.assertIn("底层运动控制通信异常。", report)
+        self.assertIn("mobile_base 先报 CAN 异常。", report)
+        self.assertIn("未见 OOM/swap 证据。", report)
+        self.assertNotIn("{'primary':", report)
+
+    def test_case_report_deduplicates_evidence_across_local_and_provider_sources(self) -> None:
+        report = format_case_report(
+            route="amr",
+            target="v001",
+            severity="错误",
+            root_cause="底层通信异常",
+            executed=[],
+            evidence=[
+                "provider_execute[lsusb -t]: rc=0 /:  Bus 02.Port 1",
+                "provider_execute[rostopic echo /low_level_error -n1]: rc=127 bash: rostopic: command not found",
+            ],
+            docs=[],
+            provider_evidence=[
+                "provider_execute[lsusb -t]: rc=0 /:  Bus 02.Port 1",
+                "provider_execute[rostopic echo /low_level_error -n1]: rc=127 bash: rostopic: command not found",
+            ],
+        )
+
+        self.assertEqual(report.count("lsusb -t: /:  Bus 02.Port 1"), 1)
+        self.assertEqual(report.count("rostopic echo /low_level_error -n1: bash: rostopic: command not found"), 1)
 
 
 class SessionStoreTests(unittest.TestCase):

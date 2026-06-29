@@ -467,12 +467,41 @@
 14. 已补第七批“专项页”，覆盖现场无线干扰 / 金属遮挡、充电任务专项、托盘取放货专项，以及两类错误码簇（底层链路中断类、任务链路超时类）。
 15. 已补第八批“更贴现场 / 机型 / 错误码簇”专项页，覆盖客户现场网络验收、叉车型托盘任务组合、麦轮窄通道任务专项，以及托盘处理失败类、定位 / 导航失败类错误码簇。
 16. 已补第九批“客户 / 机型 / 错误码簇组合专项”页，覆盖多楼层 / 电梯口网络、叉车型双摄 / RGB 组合、叉车型托盘任务错误码簇、麦轮窄通道错误码簇等更贴现场的专题页。
+17. 已重写 [knowledge/common-faults.md](/home/robot/amr-rcs-troubleshoot/knowledge/common-faults.md)，清理旧时代重复片段和混杂命令块，改为“历史复盘优先”的总入口页。
+18. 已在总入口中补齐按层级分流的导航结构，统一把常见问题分到 `hardware_bus`、`ros`、`network`、`backend`、`task_dispatch`、`cbs` 六个业务层入口。
+19. 已把“重启后恢复 / 刚刚 / 刚才 / 今天 / 指定时间点前后排查”的历史故障语境固化到知识总入口，减少后续知识页继续沿用实时快照思路的偏差。
+20. 已把 [log-paths.md](/home/robot/amr-rcs-troubleshoot/knowledge/log-paths.md)、[error-tracing-methods.md](/home/robot/amr-rcs-troubleshoot/knowledge/error-tracing-methods.md)、[error-codes.md](/home/robot/amr-rcs-troubleshoot/knowledge/error-codes.md)、[system-architecture.md](/home/robot/amr-rcs-troubleshoot/knowledge/system-architecture.md)、[deployment-ops.md](/home/robot/amr-rcs-troubleshoot/knowledge/deployment-ops.md) 统一补成“适用范围 + 历史复盘优先 + 常见检索词 + 推荐排查顺序”的公共页结构。
+21. 已把 [knowledge/hardware_bus/can-eb-communication-abnormal.md](/home/robot/amr-rcs-troubleshoot/knowledge/hardware_bus/can-eb-communication-abnormal.md) 补齐历史复盘导向和检索词，强化 CAN / EB 历史故障复盘入口。
+22. 已调整 [feishu_agent/knowledge/index.py](/home/robot/amr-rcs-troubleshoot/feishu_agent/knowledge/index.py)，让知识召回更偏向业务目录下的具体症状页，降低顶层公共页长期压住具体排障页的概率。
+23. 已为 `rcs` 默认顶层候选补入 `common-faults` 与 `deployment-ops`，让主机类问题更容易先看到“历史复盘”与“启动链 / 部署链”入口。
+24. 已补知识召回相关测试断言，并通过 `tests.test_knowledge_loader`、`tests.test_orchestrator`、`tests.test_diagnostics` 回归验证，确保入口页和召回排序调整未破坏主流程。
+25. 已补 [task-state-not-advancing.md](/home/robot/amr-rcs-troubleshoot/knowledge/task_dispatch/task-state-not-advancing.md) 与 [wifi-roaming-instability.md](/home/robot/amr-rcs-troubleshoot/knowledge/network/wifi-roaming-instability.md) 的“历史复盘优先 / 常见检索词 / 关联页”结构，继续清理早期高频页。
+26. 已为混合症状召回新增显式偏置：`USB/CAN/PCAN/uvcvideo`、`定位/TF/地图`、`任务卡住/回执/状态`、`漫游/电梯口/多楼层`、`重启后恢复/supervisor/3737` 等问题现在会更优先命中对应业务目录下的具体页或历史案例页。
+27. 已通过新增测试验证混合症状召回能更稳定命中 `hardware_bus`、`ros`、`task_dispatch` 相关具体页，而不是长期被顶层公共入口压住。
+28. 已继续把 [rcs-task-system.md](/home/robot/amr-rcs-troubleshoot/knowledge/task_dispatch/rcs-task-system.md)、[navigation-route-rules.md](/home/robot/amr-rcs-troubleshoot/knowledge/cbs/navigation-route-rules.md)、[python-ros-call-chain-monitoring.md](/home/robot/amr-rcs-troubleshoot/knowledge/backend/python-ros-call-chain-monitoring.md)、[cpu-high.md](/home/robot/amr-rcs-troubleshoot/knowledge/cpu-high.md)、[indv-params-tuning.md](/home/robot/amr-rcs-troubleshoot/knowledge/indv-params-tuning.md) 统一补到新模板结构。
+29. 已新增 [history-case-manual-recovery-hides-task-root-cause.md](/home/robot/amr-rcs-troubleshoot/knowledge/task_dispatch/history-case-manual-recovery-hides-task-root-cause.md)，补齐“任务先卡住、人工干预后恢复”这类最容易掩盖真实断点的历史任务案例。
+30. 已新增 [history-case-scan-alive-but-localization-frozen.md](/home/robot/amr-rcs-troubleshoot/knowledge/ros/history-case-scan-alive-but-localization-frozen.md)，补齐“雷达有数据但定位冻结”这类容易被误判成纯雷达掉线的历史 ROS 案例。
+31. 已新增 [history-case-vibration-causes-intermittent-drop.md](/home/robot/amr-rcs-troubleshoot/knowledge/hardware_bus/history-case-vibration-causes-intermittent-drop.md)，补齐“静止正常、运行振动时掉线”的历史硬件链路案例。
+32. 已同步更新 `task_dispatch/README.md`、`ros/README.md`、`hardware_bus/README.md`，把新增历史案例页纳入目录入口，便于后续继续按同样模式扩展。
+33. 已新增 [history-case-retry-succeeds-but-first-failure-matters.md](/home/robot/amr-rcs-troubleshoot/knowledge/task_dispatch/history-case-retry-succeeds-but-first-failure-matters.md)，补齐“第二次成功掩盖第一次失败根因”的历史任务案例。
+34. 已新增 [history-case-relocalize-recovers-but-tf-chain-still-suspect.md](/home/robot/amr-rcs-troubleshoot/knowledge/ros/history-case-relocalize-recovers-but-tf-chain-still-suspect.md)，补齐“重定位后恢复，但 TF / map 链仍可疑”的历史 ROS 案例。
+35. 已新增 [history-case-warmup-triggers-link-instability.md](/home/robot/amr-rcs-troubleshoot/knowledge/hardware_bus/history-case-warmup-triggers-link-instability.md)，补齐“运行一段时间后温升触发链路不稳”的历史硬件链路案例。
+36. 已再次同步更新 `task_dispatch/README.md`、`ros/README.md`、`hardware_bus/README.md`，让目录入口与最新历史案例页保持一致。
+37. 已将剩余正式知识页整批补齐到“适用范围 + 历史复盘优先 + 常见检索词”为核心的统一结构，覆盖 `backend/`、`network/`、`ros/`、`task_dispatch/`、`hardware_bus/`、`cbs/` 以及顶层错误码簇 / 联合分析页，基本完成“旧扁平页和早期知识页”的结构改写收口。
+38. 已确认批量结构改写过程中误触达的 `knowledge/_ai_drafts/` 草稿文件已清理，当前仅保留正式知识页改动，未把历史草稿批量回写纳入本次收口。
+39. 已修复 AMR 历史故障时间取证逻辑：完整时间优先转精确时间窗口与精确锚点，不再先退化成仅日期的 `time_key`，并按“早于故障时刻且最近的开机目录”回溯 `not_permanent/<开机时间目录>`。
+40. 已把 [scripts/collect_logs.sh](/home/robot/amr-rcs-troubleshoot/scripts/collect_logs.sh) 扩展为支持 `TARGET_TS` 精确故障时间，并将“日志目录按开机时间生成、应回溯到对应开机目录”的规则补入 [knowledge/log-paths.md](/home/robot/amr-rcs-troubleshoot/knowledge/log-paths.md)。
+41. 已把 `AMR` 历史排障扩展为三阶段闭环：第一阶段收开机目录与基础历史日志，第二阶段补 `/low_level_error`、`rosnode list`、`can0`、`lsusb -t` 与关键 launch 证据，第三阶段补 `caution / bag` 与人工恢复动作线索，并让这些证据真正参与最终根因收口。
+42. 已补对应测试，验证完整时间回溯、相对时间历史 AMR 诊断、二阶段深挖和三阶段 `caution / 人工恢复动作` 收口均已生效。
 
 剩余差距：
 
 1. 各业务域已开始形成可上线覆盖面，但仍需继续补更多客户 / 现场专项、机型差异化经验，以及按任务类型、错误码簇和历史案例持续沉淀的专题页。
 2. 关键词路由和候选文档打分仍是轻量规则，后续还需要按层级进一步细化。
 3. 历史 `_ai_drafts/` 仍保留旧路径文本，这是历史产物，当前先不做批量回写。
+4. 结构改写已基本覆盖正式知识页，但仍可继续逐页细化内容深度、现场示例和专题横向链接，避免仅有统一骨架而缺少更强的现场判定力。
+5. `AMR` 历史排障虽已形成三阶段闭环，但 bag / caution 阶段仍以“发现并提示继续核对”为主，后续可进一步固化“前后 20s~60s 应优先核对哪些 topic / 状态位”的自动化提示。
+6. 混合症状召回已开始收敛，但仍可继续补更多“机型 + 场景 + 错误码 + 历史时间语境”的组合规则与专题页。
 
 ### 3.10 草稿沉淀与 Post Mortem
 

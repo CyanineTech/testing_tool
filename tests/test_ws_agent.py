@@ -725,6 +725,41 @@ class WsAgentTests(unittest.TestCase):
         self.assertEqual(time_key, "2026_06_11")
         self.assertEqual(resolved_key, "chat_rcs:msg_rcs")
 
+    def test_resolve_case_context_keeps_previous_target_for_follow_up_service_words(self) -> None:
+        conversation_key = "chat_4:root_4"
+        ws_agent.orchestrator.session_store.update(
+            conversation_key,
+            route="rcs",
+            target="192.168.1.170",
+            time_key="",
+            step_index=1,
+            last_report="已收到：RCS 主机问题",
+        )
+        payload = {
+            "event": {
+                "message": {
+                    "chat_id": "chat_4",
+                    "message_id": "msg_follow_up_service_words",
+                    "root_id": "root_4",
+                    "parent_id": "root_4",
+                    "thread_id": "thread_4",
+                    "chat_type": "group",
+                    "content": json.dumps({"text": "继续查 supervisor 为什么没运行，查 MySQL 异常的具体原因"}),
+                }
+            }
+        }
+
+        route, target, time_key, resolved_key = ws_agent.resolve_case_context(
+            "继续查 supervisor 为什么没运行，查 MySQL 异常的具体原因",
+            payload,
+            "ou_1",
+        )
+
+        self.assertEqual(route, "rcs")
+        self.assertEqual(target, "192.168.1.170")
+        self.assertIsNone(time_key)
+        self.assertEqual(resolved_key, conversation_key)
+
 
 if __name__ == "__main__":
     unittest.main()

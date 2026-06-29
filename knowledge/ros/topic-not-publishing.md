@@ -4,6 +4,12 @@
 - 机器人某个关键 topic 没数据、长时间不更新或偶发中断。
 - 适用于 `/scan`、`/low_level_error`、`/amcl_pose`、`/move_base/status` 等关键 topic 异常。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - `rostopic echo` 一直等不到消息。
 - 节点看起来还在，但 topic 没有更新。

@@ -3,6 +3,30 @@
 > 文件路径: `~/static/indv_params.yaml`  
 > 每台机器人出厂前必须检查该文件所有值。如无需更改默认值，则不写入。
 
+## 适用范围
+
+- 需要调整机器人个体参数，尤其是传感器外参、取放货动作、点云过滤、导航参数和载具识别参数。
+- 用户描述偏向“为什么这台车总偏”“这个托盘场景怎么调”“参数改哪里”“indv_params 怎么看”。
+
+## 历史复盘优先
+
+- 这页主要说明参数语义和调参入口，不应直接替代历史故障证据分析。
+- 如果是“某次场景反复失败”“某台车长期偏同一方向”，应先回看历史任务、bag、日志和现场几何，再决定是否改参数。
+- 不要把所有场景问题都直接归因到 `indv_params`；先排除 USB / CAN / 定位 / 路线 / 现场托盘差异等更直接原因。
+
+## 常见检索词
+
+- indv_params
+- 参数调优
+- 托盘参数
+- 取货偏
+- 放货偏
+- tf 校准
+- 充电对准参数
+- cluster_tolerance
+- inflation_radius
+- 这台车总偏
+
 ## adjust_urdf（传感器安装误差补偿）
 
 用于传感器安装位置与理论位置的差异补偿，**必有项**。
@@ -176,3 +200,17 @@ rostopic echo /state_monitor/state_monitor_feedback
 rostopic pub /motor_control/low_level_status motor_control/low_level_status_forklift "header: ..."
 # 用tab补全，修改battery值
 ```
+
+## 推荐排查顺序
+
+1. 先确认问题更像参数问题，而不是硬件、定位、任务链路或现场几何异常。
+2. 如果是历史问题，先固定失败时间并回看 bag、日志、现场照片。
+3. 再按模块判断是 TF、取放货、避障、导航还是载具识别参数。
+4. 每次只改一小组参数，并保留改前改后对照。
+
+## 关联总入口
+
+- [common-faults.md](common-faults.md)
+- [error-tracing-methods.md](error-tracing-methods.md)
+- [task_dispatch/pallet-or-geometry-mismatch.md](task_dispatch/pallet-or-geometry-mismatch.md)
+- [ros/history-case-location-ok-but-map-or-tf-mismatch.md](ros/history-case-location-ok-but-map-or-tf-mismatch.md)

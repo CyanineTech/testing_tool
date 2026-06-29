@@ -2,15 +2,22 @@
 # 网络诊断脚本
 # 用法: ./network_diag.sh <amr_ip_or_hostname>
 # 示例: ./network_diag.sh 192.168.1.250
+#
+# 说明:
+# - 本脚本主要用于“当前网络状态快照”。
+# - 如果是历史掉线、历史网络抖动或任务链路中断复盘，
+#   应优先结合故障时间、主从机日志、上一个 boot 或对应 not_permanent 目录回看，而不是只看当前连通性。
 
 set -e
 
 if [ -z "$1" ]; then
-    echo "用法: $0 <amr_ip_or_hostname>"
+    echo "用法: $0 <amr_ip_or_hostname> [window_start] [window_end]"
     exit 1
 fi
 
 HOST="$1"
+WINDOW_START="${2:-}"
+WINDOW_END="${3:-}"
 USER="robot"
 PASS="qweasdzxc"
 SSH_TIMEOUT="${SSH_TIMEOUT:-30}"
@@ -33,6 +40,9 @@ ssh_remote() {
 echo "======================================"
 echo "网络诊断: $HOST"
 echo "时间: $(date)"
+if [ -n "$WINDOW_START" ] || [ -n "$WINDOW_END" ]; then
+    echo "时间窗口: ${WINDOW_START:-N/A} ~ ${WINDOW_END:-N/A}"
+fi
 echo "======================================"
 
 # 1. 本机到 AMR 的连通性
@@ -116,3 +126,15 @@ echo ""
 echo "======================================"
 echo "网络诊断完成"
 echo "======================================"
+
+if [ -n "$WINDOW_START" ] && [ -n "$WINDOW_END" ]; then
+echo ""
+echo "== 8. 历史时间窗口回溯 =="
+ssh_remote "
+echo '--- kernel window ---'
+journalctl -k --since '$WINDOW_START' --until '$WINDOW_END' --no-pager 2>/dev/null | tail -n 120 || true
+echo
+echo '--- network stack window ---'
+journalctl --since '$WINDOW_START' --until '$WINDOW_END' --no-pager 2>/dev/null | grep -i 'network\\|wifi\\|wlan\\|tailscale\\|vpn\\|disconnect\\|reconnect\\|carrier\\|dhcp\\|dns\\|ssh' | tail -n 120 || true
+" || echo "[WARN] 历史网络时间窗口日志提取失败"
+fi

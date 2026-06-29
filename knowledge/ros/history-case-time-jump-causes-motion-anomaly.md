@@ -4,6 +4,12 @@
 - 机器人在没有明显新任务的情况下，位置、TF 或运动控制出现异常跳变。
 - 适用于要把“时间同步问题”从普通定位问题中单独识别出来的复盘场景。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - 机器人在无明确任务切换时突然出现异常运动或位置跳变。
 - 日志中出现 `jump back in time`、`clearing TF` 等提示。

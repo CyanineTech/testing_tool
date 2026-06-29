@@ -4,6 +4,12 @@
 - `/amcl_pose`、基础定位输出看起来还在，但导航、点位或姿态表现明显不对。
 - 适用于“不是纯定位丢失，而是地图、TF 或切图后关系错位”的历史复盘。
 
+## 历史复盘优先
+
+- ROS 运行态问题如果已经恢复，优先固定故障时间和对应 `not_permanent` 日志目录。
+- 不要直接用当前 `rosnode list`、当前 topic 或当前 pose 替代历史故障证据。
+- 应优先回看对应时间段的 `default.launch`、`mobile_base.launch`、`state_monitor_wrapper.launch` 和 bag。
+
 ## 典型现象
 - 地图上有位置，但实际导航行为明显不合理。
 - 定位值存在，但走不到点、朝向奇怪或路径绕行异常。

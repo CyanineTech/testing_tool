@@ -1,5 +1,34 @@
 # 部署与运维手册
 
+## 适用范围
+
+- 新机部署、服务运维、网络配置、Docker / supervisor / systemd 维护。
+- 用户描述偏向“怎么部署”“怎么改 IP”“怎么配服务”“新机怎么落地”。
+
+## 历史复盘优先
+
+- 这页以部署运维为主，但很多故障复盘需要回看服务启动链和环境配置。
+- 当问题表现为“重启后恢复”“改配置后异常”“上线后才出现”，应先核对部署链、服务依赖和配置入口，再回看历史日志。
+- 不要只检查当前配置文件存在与否，要结合故障发生时的启动链和服务状态。
+
+## 常见检索词
+
+- 新机部署
+- 服务怎么启动
+- supervisor 配置
+- systemd 服务
+- 改 IP
+- Docker 怎么部署
+- 网络怎么配置
+- 运维入口
+
+## 推荐排查顺序
+
+1. 先确认问题是部署缺失、配置错误，还是运行态链路异常。
+2. 如果伴随重启或发版后异常，先看服务启动链和环境变量来源。
+3. 再核对 systemd、supervisor、Docker 和网络配置。
+4. 最后再回到业务层日志确认故障表现。
+
 ## 系统服务 (systemd)
 
 | 服务 | 功能 | 备注 |
@@ -218,6 +247,12 @@ TP-LINK TL-IPC445EP-W2.8（推荐 PoE 版本，单网线供电+数据）
 5. `sudo systemctl start first-boot.service`（仅一次，生成网络连接）
 6. 连网更新：`sudo apt update && sudo apt install linux-generic-hwe-20.04`
 7. 重启 → 执行 `first-boot.service`
+
+## 关联总入口
+
+- [README.md](README.md)
+- [system-architecture.md](system-architecture.md)
+- [log-paths.md](log-paths.md)
 8. 后端部署 → 重启
 
 ## 镜像制作 (CUBIC)

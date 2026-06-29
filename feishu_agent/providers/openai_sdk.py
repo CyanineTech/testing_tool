@@ -68,6 +68,165 @@ def _normalize_severity(value: str) -> str:
     return _SEVERITY_ALIASES.get(candidate, candidate)
 
 
+def _normalize_provider_evidence_lines(lines: Sequence[str]) -> List[str]:
+    normalized: List[str] = []
+    for line in lines:
+        text = str(line or "").strip()
+        if not text:
+            continue
+        normalized.append(text)
+    return normalized
+
+
+def _is_generic_rcs_root_cause(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return True
+    return normalized in {
+        "RCS 主机关键服务链路异常。",
+        "RCS 侧存在服务异常或端口不可用",
+        "RCS 服务需要进一步核对",
+    }
+
+
+def _build_rcs_fallback_payload(evidence_lines: Sequence[str]) -> Dict[str, Any]:
+    joined = "\n".join(evidence_lines)
+    lower_joined = joined.lower()
+    next_steps: List[str] = []
+    evidence: List[str] = list(evidence_lines[:6])
+    summary = "已根据远程取证补齐主机服务状态。"
+    root_cause = "RCS 主机关键服务链路异常。"
+    severity = "warning"
+    confidence = "medium"
+
+    backend_refused = "connection refused" in lower_joined or "后端 api 无响应" in lower_joined
+    mysql_access_denied = "access denied for user 'root'@'localhost'" in lower_joined
+    mysql_running = "docker-mysql_5_7-1" in lower_joined and "running false 0" in lower_joined
+    supervisor_signal = "supervisord" in lower_joined or "supervisor" in lower_joined
+    kernel_clean = "-- no entries --" in lower_joined and "journalctl -k" in lower_joined
+
+    if backend_refused:
+        severity = "error"
+        root_cause = "RCS 主机后端 API 未监听，当前是主业务服务未拉起或已退出，不是单纯接口慢。"
+        summary = "后端 3737 端口未监听，主业务服务当前未正常拉起。"
+        next_steps.append("检查 master_backend / 调度相关服务进程是否存在，确认是谁没有拉起 3737 端口。")
+    if mysql_running and mysql_access_denied:
+        severity = "error" if severity != "error" else severity
+        root_cause = (
+            "MySQL 容器处于运行状态，但当前 root 无密码探活被拒；现阶段更像是探活鉴权不匹配，"
+            "而不是 MySQL 容器本身已经停止。"
+        )
+        summary = "MySQL 容器在运行，但当前探活方式与现场鉴权不匹配。"
+        next_steps.append("核对 MySQL 探活账号、密码和容器内认证方式，避免把鉴权失败误判成数据库故障。")
+    if backend_refused and mysql_running and mysql_access_denied:
+        summary = "后端 3737 未监听，且 MySQL 探活鉴权方式不匹配。"
+        root_cause = (
+            "RCS 主机当前更像是后端服务未监听 3737 端口，同时 MySQL 探活方式与现场认证不匹配；"
+            "应优先排查 backend / supervisor 拉起链路，其次再核对数据库鉴权配置。"
+        )
+    if supervisor_signal:
+        next_steps.append("直接核对 supervisor 日志中 master_backend、cbs_master_server 退出或等待结束的具体原因。")
+    if kernel_clean:
+        next_steps.append("当前 kernel / docker 日志未见明显系统级报错，优先聚焦应用层和守护进程链路。")
+    if not next_steps:
+        next_steps.extend(
+            [
+                "直接核对 supervisor、backend、mysql 的启动日志。",
+                "确认 3737 端口由哪个服务负责拉起以及失败原因。",
+            ]
+        )
+
+    return {
+        "summary": summary,
+        "root_cause": root_cause,
+        "severity": severity,
+        "next_steps": next_steps[:4],
+        "evidence": evidence,
+        "confidence": confidence,
+    }
+
+
+def _build_amr_fallback_payload(evidence_lines: Sequence[str]) -> Dict[str, Any]:
+    joined = "\n".join(evidence_lines)
+    lowered = joined.lower()
+    next_steps: List[str] = []
+    evidence: List[str] = list(evidence_lines[:8])
+    summary = "已根据历史日志与远程取证补齐 AMR 故障证据。"
+    root_cause = "AMR 历史故障仍需结合更多上下文继续复核。"
+    severity = "warning"
+    confidence = "medium"
+
+    has_caution = "caution_" in lowered
+    has_manual_recovery = any(token in lowered for token in ("switch to manual", "manual", "recover", "release", "retry", "切手动", "人工恢复"))
+    has_low_level_chain = any(
+        token in lowered
+        for token in (
+            "connection dropped",
+            "reset embedded system",
+            "cannot read eb",
+            "cannot write eb",
+            "can bus",
+            "resume eb_interrupt",
+            "can0",
+            "pcan",
+        )
+    )
+    front_scan_issue = re.search(r"laserscan.*front|front.*laserscan|front lidar|front radar|laser[a-z_ ]*front", joined, re.IGNORECASE)
+    rear_scan_issue = re.search(r"laserscan.*rear|rear.*laserscan|rear lidar|rear radar|laser[a-z_ ]*rear", joined, re.IGNORECASE)
+    low_level_unpublished = "/low_level_error 当前未发布" in joined or "topic [/low_level_error] does not appear to be published yet" in joined
+
+    if front_scan_issue:
+        severity = "error"
+        root_cause = "故障时段前向扫描链路存在历史掉线或异常，优先核对前雷达及其上游 USB / 供电链路。"
+        summary = "历史证据显示前向扫描链路在故障时段存在异常。"
+        next_steps.append("继续核对前雷达对应的 default.launch、USB 枚举和上游供电链路。")
+    elif rear_scan_issue:
+        severity = "error"
+        root_cause = "故障时段后向扫描链路存在历史掉线或异常，优先核对后雷达及其上游链路。"
+        summary = "历史证据显示后向扫描链路在故障时段存在异常。"
+        next_steps.append("继续核对后雷达对应的 launch 日志、USB 枚举和链路稳定性。")
+
+    if has_low_level_chain:
+        severity = "error"
+        root_cause = "故障时段先出现底层嵌入式 / CAN 链路异常，扫描、定位或任务异常更像由底层通信失稳引发的派生表现。"
+        summary = "历史证据显示首发异常更像底层嵌入式 / CAN 链路失稳。"
+        next_steps.append("优先核对 mobile_base.launch 中的 CAN / EB / driver 异常与故障时间是否严格对齐。")
+
+    if has_caution and "未找到" in root_cause:
+        root_cause = "未找到对应 ROS 原始日志；但同时间段存在 caution 录包，建议继续结合 bag 前后状态变化定位首发异常。"
+        summary = "ROS 原始日志不足，但同时间段存在 caution 录包可继续追根。"
+        next_steps.append("优先下载同时间段 caution / bag，核对故障前后 20s~60s 的 /low_level_error、/scan、/amcl_pose、/odom、/motor_control/low_level_status 变化。")
+    elif has_caution:
+        next_steps.append("继续结合同时间段 caution / bag，核对故障前后 20s~60s 的 /low_level_error、/scan、/amcl_pose、/odom、/motor_control/low_level_status，确认首发异常与派生异常的先后顺序。")
+
+    if has_manual_recovery:
+        severity = "error" if severity == "error" else "warning"
+        root_cause = "现场存在人工恢复或重试动作，这些更像掩盖首因的恢复手段；应优先回到第一次异常时间，结合底层链路与任务状态流判断首发根因。"
+        summary = "历史证据显示现场存在人工恢复动作，首因可能被后续恢复操作掩盖。"
+        next_steps.append("把人工切手动、重发任务、恢复操作的时间点单独列出，避免把恢复动作误判成根因。")
+
+    if low_level_unpublished and not has_low_level_chain and not front_scan_issue and not rear_scan_issue:
+        summary = "当前实时 /low_level_error 未提供补充错误码，仍应以故障时段历史 launch 日志为主证据。"
+        root_cause = "当前实时 /low_level_error 未给出补充错误码，需优先依据历史 launch 与 bag 证据判断首发异常。"
+
+    if not next_steps:
+        next_steps.extend(
+            [
+                "优先回到故障第一次发生的时间点，核对开机目录下的 default.launch、mobile_base.launch、state_monitor_wrapper.launch。",
+                "若同时间段存在 caution / bag，继续核对前后 20s~60s 的底层状态、扫描链路和任务状态变化。",
+            ]
+        )
+
+    return {
+        "summary": summary,
+        "root_cause": root_cause,
+        "severity": severity,
+        "next_steps": next_steps[:4],
+        "evidence": evidence,
+        "confidence": confidence,
+    }
+
+
 @dataclass
 class OpenAIProvider:
     name: str = "openai_sdk"
@@ -127,6 +286,12 @@ class OpenAIProvider:
                 "如果需要查历史日志或录包路径，只能优先使用白名单内的只读命令。"
                 "优先使用 /home/robot/log/not_permanent、/home/robot 下的 find/ls 命令，"
                 "不要生成 bash -lc、管道、重定向、grep|head 组合，也不要扫描整个根目录。"
+            )
+        elif request.route == "rcs":
+            base += (
+                "如果证据里已经出现 supervisor 未运行、MySQL 异常、后端 API HTTP 000、死机后重启恢复 等信号，"
+                "不要只停留在总结层，优先通过 secure_ssh_execute 继续核对 supervisor、mysql、backend、kernel 日志。"
+                "优先使用 systemctl status、journalctl、docker logs、docker inspect、curl 这类白名单内只读命令。"
             )
         return base
 
@@ -207,6 +372,15 @@ class OpenAIProvider:
             return payload
         return self._salvage_text_payload(raw_output)
 
+    def _has_structured_json_payload(self, raw_output: str) -> bool:
+        try:
+            payload = json.loads(raw_output)
+            return isinstance(payload, dict)
+        except Exception:
+            pass
+        payload = extract_json_object(raw_output)
+        return isinstance(payload, dict) and bool(payload)
+
     def _salvage_text_payload(self, raw_output: str) -> Dict[str, Any]:
         text = str(raw_output or "").strip()
         if not text:
@@ -261,6 +435,44 @@ class OpenAIProvider:
             payload["confidence"] = "medium"
 
         return payload
+
+    def _fallback_payload_from_tool_evidence(
+        self,
+        request: ProviderRequest,
+        action_events: Sequence[ActionEvent],
+        raw_output: str,
+    ) -> Dict[str, Any]:
+        evidence_lines: List[str] = []
+        for event in action_events:
+            payload = getattr(event, "payload", {}) or {}
+            if not isinstance(payload, dict):
+                continue
+            event_type = str(getattr(event, "type", "") or "")
+            if event_type == ACTION_SECURE_SSH_EXECUTE:
+                command = str(payload.get("command") or "").strip()
+                stdout = str(payload.get("stdout") or "").strip()
+                stderr = str(payload.get("stderr") or "").strip()
+                preview = stdout or stderr
+                if command and preview:
+                    evidence_lines.append(f"provider_execute[{command}]: {preview[:500]}")
+            elif event_type == ACTION_READ_KNOWLEDGE:
+                path = str(payload.get("path") or "").strip()
+                excerpt = str(payload.get("excerpt") or "").strip()
+                if path and excerpt:
+                    evidence_lines.append(f"knowledge_read[{path}]: {excerpt[:300]}")
+
+        evidence_lines = _normalize_provider_evidence_lines(evidence_lines)
+        if request.route == "amr" and evidence_lines:
+            fallback = _build_amr_fallback_payload(evidence_lines)
+            if raw_output.strip():
+                fallback["summary"] = fallback.get("summary") or "模型未返回标准 JSON，已根据历史取证自动生成兜底结论。"
+            return fallback
+        if request.route == "rcs" and evidence_lines:
+            fallback = _build_rcs_fallback_payload(evidence_lines)
+            if raw_output.strip():
+                fallback["summary"] = "模型未返回标准 JSON，已根据远程取证自动生成兜底结论。"
+            return fallback
+        return {}
 
     def _build_tools(self) -> List[Dict[str, Any]]:
         return [
@@ -461,6 +673,31 @@ class OpenAIProvider:
                     raise
         raw_output = self._extract_text_output(response)
         payload = self._parse_response_payload(raw_output)
+        has_structured_json_payload = self._has_structured_json_payload(raw_output)
+        if (
+            action_events
+            and (
+                not has_structured_json_payload
+                or (
+                    has_structured_json_payload
+                    and (
+                        not str(payload.get("root_cause") or "").strip()
+                        or _is_generic_rcs_root_cause(str(payload.get("root_cause") or ""))
+                        or str(payload.get("summary") or "").strip() in {"", "openai_sdk 未返回结构化结论。"}
+                    )
+                )
+            )
+        ):
+            fallback_payload = self._fallback_payload_from_tool_evidence(request, action_events, raw_output)
+            if fallback_payload:
+                merged_payload = dict(fallback_payload)
+                for key, value in payload.items():
+                    if not value:
+                        continue
+                    if key in {"summary", "root_cause", "severity"}:
+                        continue
+                    merged_payload[key] = value
+                payload = merged_payload
 
         next_steps = payload.get("next_steps") or []
         evidence = payload.get("evidence") or []

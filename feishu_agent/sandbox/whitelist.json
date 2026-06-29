@@ -14,7 +14,10 @@
     "^rosnode (?:list|info) .*$",
     "^lsusb(?: -t)?$",
     "^ip -s -d link show can0$",
-    "^chronyc sources$"
+    "^chronyc sources$",
+    "^free -h$",
+    "^swapon --show$",
+    "^cat /proc/meminfo$"
   ],
   "ssh_allow_patterns": {
     "amr": [
@@ -29,6 +32,9 @@
       "^chronyc sources$",
       "^dmesg.*$",
       "^journalctl.*$",
+      "^free -h$",
+      "^swapon --show$",
+      "^cat /proc/meminfo$",
       "^tail -n [0-9]+ .*$",
       "^grep .*$",
       "^head -n [0-9]+ .*$",
@@ -50,7 +56,14 @@
     ],
     "rcs": [
       "^docker ps --format '.*'$",
+      "^docker logs [a-zA-Z0-9_.-]+ --tail [0-9]+$",
+      "^docker inspect -f '.*' [a-zA-Z0-9_.-]+$",
+      "^docker exec [a-zA-Z0-9_.-]+ mysqladmin ping -u [a-zA-Z0-9_.-]+$",
+      "^curl -s -S -m [0-9]+ http://127\\.0\\.0\\.1:[0-9]+/.*$",
+      "^systemctl status [a-zA-Z0-9_.@-]+(?: --no-pager)?$",
       "^systemctl --user status [a-zA-Z0-9_.@-]+.*$",
+      "^journalctl -u [a-zA-Z0-9_.@-]+ -n [0-9]+ --no-pager$",
+      "^journalctl -k -n [0-9]+ --no-pager$",
       "^journalctl.*$",
       "^tail -n [0-9]+ .*$",
       "^grep .*$",

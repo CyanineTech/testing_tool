@@ -1,5 +1,7 @@
 from typing import Iterable, List, Mapping, Sequence
 import ast
+import json
+import re
 
 from feishu_agent.core.session import SessionState
 from feishu_agent.playbooks.base import Playbook, next_step
@@ -11,6 +13,7 @@ _HIDDEN_EVIDENCE_PREFIXES = (
     "policy_warning:",
     "mcp_server_status:",
     "mcp_servers_loaded:",
+    "provider_report:",
     "knowledge_candidates:",
     "doc_excerpt[",
     "knowledge_read[",
@@ -18,19 +21,137 @@ _HIDDEN_EVIDENCE_PREFIXES = (
 )
 
 
+def _provider_execute_summary(line: str) -> str:
+    match = ast.literal_eval("{}") if False else None
+    if not line.startswith("provider_execute["):
+        return line
+    closing = line.find("]:")
+    if closing < 0:
+        return line
+    command = line[len("provider_execute["):closing].strip()
+    payload = line[closing + 2 :].strip()
+    if payload.startswith("rc="):
+        first_space = payload.find(" ")
+        if first_space >= 0:
+            payload = payload[first_space + 1 :].strip()
+    lowered = payload.lower()
+    if "connection refused" in lowered and "127.0.0.1:3737" in command:
+        return "后端 API 3737 端口连接被拒绝，说明服务当前未监听。"
+    if "access denied" in lowered and "mysqladmin ping" in command:
+        return "MySQL 容器在运行，但当前探活账号/认证方式不匹配。"
+    if "running false 0" in lowered and "docker-mysql_5_7-1" in command:
+        return "MySQL 容器状态为 running，未见容器退出。"
+    if "start request repeated too quickly" in lowered:
+        return "supervisor 或其托管服务存在频繁拉起失败迹象。"
+    if "-- no entries --" in lowered and "journalctl -k" in command:
+        return "kernel 日志未见明显系统级报错。"
+    if "-- no entries --" in lowered and "journalctl -u docker" in command:
+        return "docker 服务日志未见明显异常。"
+    if "mobile_base.launch" in command and any(token in lowered for token in ("connection dropped", "reset embedded system", "cannot read eb", "cannot write eb", "can bus")):
+        return "mobile_base.launch 在故障时段出现 CAN / EB / 驱动链路异常，优先指向底层通信失稳。"
+    if "default.launch" in command and any(token in lowered for token in ("laser", "scan", "radar", "error_list timeout", "registererror2")):
+        return "default.launch 在故障时段出现扫描链路或错误监控异常，需结合底层链路判断是否为派生表现。"
+    if "state_monitor_wrapper.launch" in command and any(token in lowered for token in ("switch to manual", "manual", "recover", "resume", "retry", "release")):
+        return "state_monitor_wrapper.launch 记录到手动 / 恢复 / 重试相关线索，应把它视为恢复动作而不是直接根因。"
+    if "find /home/robot/autobag" in command and "caution_" in lowered:
+        match = re.search(r"(caution_[^\s]+\.bag\.zip)", payload, re.IGNORECASE)
+        if match:
+            return f"同时间段存在 caution / bag 证据：{match.group(1)}，建议继续核对故障前后 20s~60s 的 /low_level_error、/scan、/amcl_pose、/odom、/motor_control/low_level_status。"
+        return "同时间段存在 caution / bag 证据，建议继续核对故障前后 20s~60s 的 /low_level_error、/scan、/amcl_pose、/odom、/motor_control/low_level_status。"
+    compact = payload.replace("`", "'")
+    if len(compact) > 120:
+        compact = compact[:117] + "..."
+    return f"{command}: {compact}"
+
+
 def _visible_evidence_lines(evidence: Iterable[str]) -> List[str]:
     lines: List[str] = []
+    seen: List[str] = []
     for line in evidence:
         if not line or not str(line).strip():
             continue
         normalized = str(line).strip()
         if any(normalized.startswith(prefix) for prefix in _HIDDEN_EVIDENCE_PREFIXES):
             continue
-        lines.append(_normalize_visible_evidence_line(normalized))
+        visible = _normalize_visible_evidence_line(normalized)
+        if visible not in seen:
+            seen.append(visible)
+            lines.append(visible)
     return lines
 
 
+def _humanize_provider_text(text: str) -> List[str]:
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+
+    candidate = raw
+    if candidate.startswith("```") and candidate.endswith("```"):
+        candidate = candidate.strip("`").strip()
+
+    payload = None
+    try:
+        payload = json.loads(candidate)
+    except Exception:
+        try:
+            payload = ast.literal_eval(candidate)
+        except Exception:
+            payload = None
+
+    if isinstance(payload, dict):
+        lines: List[str] = []
+        primary = str(payload.get("primary") or "").strip()
+        if primary:
+            lines.append(primary)
+        category = str(payload.get("category") or "").strip()
+        detail = str(payload.get("detail") or "").strip()
+        if category and detail:
+            lines.append(f"{category}：{detail}")
+        elif detail:
+            lines.append(detail)
+        analysis = payload.get("analysis")
+        if isinstance(analysis, (list, tuple)):
+            for item in analysis:
+                cleaned = str(item or "").strip()
+                if cleaned:
+                    lines.append(cleaned)
+        elif analysis:
+            cleaned = str(analysis).strip()
+            if cleaned:
+                lines.append(cleaned)
+        if lines:
+            return lines
+
+    if isinstance(payload, list):
+        lines = [str(item or "").strip() for item in payload if str(item or "").strip()]
+        if lines:
+            return lines
+
+    return [raw]
+
+
+def _append_unique_line(container: List[str], seen: List[str], text: str) -> None:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return
+    if cleaned not in seen:
+        seen.append(cleaned)
+        container.append(cleaned)
+
+
+def _merged_visible_evidence_lines(evidence: Iterable[str], provider_evidence: Iterable[str]) -> List[str]:
+    merged: List[str] = []
+    seen: List[str] = []
+    for item in _visible_evidence_lines(evidence):
+        _append_unique_line(merged, seen, item)
+    for item in _visible_evidence_lines(provider_evidence):
+        _append_unique_line(merged, seen, item)
+    return merged
+
+
 def _normalize_visible_evidence_line(line: str) -> str:
+    if line.startswith("provider_execute["):
+        return _provider_execute_summary(line)
     if not line.startswith("{") or not line.endswith("}"):
         return line
     try:
@@ -41,6 +162,10 @@ def _normalize_visible_evidence_line(line: str) -> str:
         return line
     item_type = str(payload.get("type") or "").strip()
     content = str(payload.get("content") or "").strip()
+    detail = str(payload.get("detail") or "").strip()
+    value = str(payload.get("value") or "").strip()
+    if not content:
+        content = detail or value
     if not content:
         return line
     if item_type == "local_diag_summary":
@@ -49,6 +174,10 @@ def _normalize_visible_evidence_line(line: str) -> str:
         return f"本地诊断执行：{content}"
     if item_type == "knowledge_reference":
         return f"知识参考：{content}"
+    if item_type == "provider_execute":
+        return content
+    if "detail" in payload and str(payload.get("detail") or "").strip():
+        return str(payload.get("detail") or "").strip()
     return content
 
 
@@ -117,54 +246,68 @@ def format_case_report(
     provider_next_steps: Sequence[str] = (),
     provider_evidence: Iterable[str] = (),
 ) -> str:
-    lines: List[str] = [
-        "## 诊断结果",
-        f"**故障类别**：{route}",
-        f"**目标**：{target or '未指定'}",
-        f"**严重程度**：{severity}",
-        f"**根因分析**：{root_cause}",
-    ]
+    lines: List[str] = ["## 诊断结果"]
 
-    lines.append("**已执行检查**：")
+    lines.append("**1. 故障结论**")
+    lines.append(f"- 对象：{route} / {target or '未指定'}")
+    lines.append(f"- 严重程度：{severity}")
+    lines.append(f"- 当前结论：{_build_conclusion_line(route, severity, root_cause)}")
+
+    lines.append("**2. 根因**")
+    lines.append(f"- {root_cause}")
+    if provider_summary:
+        provider_parts: List[str] = []
+        if provider_root_cause and provider_root_cause.strip() and provider_root_cause.strip() != root_cause.strip():
+            provider_parts.extend(_humanize_provider_text(provider_root_cause.strip().replace("`", "'")))
+        provider_parts.extend(_humanize_provider_text(provider_summary.replace("`", "'")))
+        deduped_provider_parts: List[str] = []
+        provider_seen: List[str] = []
+        for item in provider_parts:
+            _append_unique_line(deduped_provider_parts, provider_seen, item)
+        for idx, part in enumerate(deduped_provider_parts):
+            prefix = "- " if idx == 0 else "  "
+            lines.append(f"{prefix}{part}")
+
+    lines.append("**3. 建议**")
+    provider_next_steps_list = [item.strip() for item in provider_next_steps if item and str(item).strip()]
+    if provider_next_steps_list:
+        for index, item in enumerate(provider_next_steps_list, start=1):
+            lines.append(f"- {index}. {item}")
+    else:
+        lines.append(f"- {_default_fix_line(route, 1)[3:]}")
+        lines.append(f"- {_default_fix_line(route, 2)[3:]}")
+        lines.append(f"- {_default_fix_line(route, 3)[3:]}")
+
+    lines.append("**4. 证据**")
     if executed:
         for index, item in enumerate(executed, start=1):
             command = str(item.get("command", ""))
             returncode = item.get("returncode", "")
-            lines.append(f"- {index}. `{command}` (rc={returncode})")
+            lines.append(f"- 检查 {index}：`{command}` (rc={returncode})")
     else:
         lines.append("- 暂无自动执行检查，当前结论基于知识库与上下文。")
 
-    evidence_lines = _visible_evidence_lines(evidence)
-    if evidence_lines:
-        lines.append("**证据摘要**：")
-        for item in evidence_lines[-8:]:
+    merged_evidence_lines = _merged_visible_evidence_lines(evidence, provider_evidence)
+    if merged_evidence_lines:
+        for item in merged_evidence_lines[-8:]:
             cleaned = item.replace("`", "'")
             lines.append(f"- {cleaned}")
 
-    if provider_summary:
-        lines.append("**补充判断**：")
-        lines.append(provider_summary.replace("`", "'"))
-        provider_next_steps_list = [item.strip() for item in provider_next_steps if item and str(item).strip()]
-        if provider_next_steps_list:
-            lines.append("- 建议继续：")
-            for item in provider_next_steps_list:
-                lines.append(f"  - {item}")
-        provider_evidence_lines = _visible_evidence_lines(provider_evidence)
-        if provider_evidence_lines:
-            lines.append("- 补充证据：")
-            for item in provider_evidence_lines[-4:]:
-                cleaned_item = item.replace("`", "'")
-                lines.append(f"  - {cleaned_item}")
-
-    lines.extend([
-        "**修复建议**：",
-        _default_fix_line(route, 1),
-        _default_fix_line(route, 2),
-        _default_fix_line(route, 3),
-        "**是否需要停机**：待评估",
-        "**预计恢复时间**：待评估",
-    ])
     return "\n".join(lines)
+
+
+def _build_conclusion_line(route: str, severity: str, root_cause: str) -> str:
+    route_titles = {
+        "amr": "AMR 历史故障",
+        "network": "网络历史故障",
+        "rcs": "RCS 主机历史故障",
+    }
+    title = route_titles.get(route, "历史故障")
+    if severity in {"错误", "严重", "error", "critical"}:
+        return f"{title}已定位到高优先级异常，建议优先按首发异常继续收口。"
+    if "未找到" in root_cause or "不足" in root_cause:
+        return f"{title}已有初步方向，但现有证据仍不足以完全闭环。"
+    return f"{title}已有明确排查方向，可继续围绕当前根因收口。"
 
 
 def _default_fix_line(route: str, index: int) -> str:

@@ -37,6 +37,9 @@ class SandboxExecutorTests(unittest.TestCase):
         )
         self.assertTrue(validate_command("amr", "ls /home/robot/log/not_permanent"))
         self.assertTrue(validate_command("rcs", "grep mysql /var/log/syslog"))
+        self.assertTrue(validate_command("rcs", "systemctl status supervisor --no-pager"))
+        self.assertTrue(validate_command("rcs", "docker logs docker-mysql_5_7-1 --tail 80"))
+        self.assertTrue(validate_command("rcs", "docker exec docker-mysql_5_7-1 mysqladmin ping -u root"))
 
 
 if __name__ == "__main__":

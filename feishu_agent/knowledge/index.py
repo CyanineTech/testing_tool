@@ -88,10 +88,12 @@ _ROUTE_TOP_LEVEL_DOCS: Dict[str, List[str]] = {
         "knowledge/log-paths.md",
     ],
     "rcs": [
+        "knowledge/common-faults.md",
         "knowledge/system-architecture.md",
         "knowledge/error-tracing-methods.md",
         "knowledge/log-paths.md",
         "knowledge/error-codes.md",
+        "knowledge/deployment-ops.md",
     ],
 }
 
@@ -139,7 +141,69 @@ def match_supporting_docs(text: str, route: str) -> List[str]:
         doc_tokens = _load_doc_match_tokens(doc)
         if query_tokens & doc_tokens:
             docs.append(doc)
+    for doc in _boosted_docs_for_query(text, route):
+        if doc not in docs:
+            docs.append(doc)
     return docs
+
+
+def _boosted_docs_for_query(text: str, route: str) -> List[str]:
+    lowered = text.lower()
+    boosted: List[str] = []
+
+    if route == "amr":
+        if (
+            any(keyword in lowered for keyword in ["uvcvideo", "pcan", "ch341", "usb", "can"])
+            and any(keyword in text for keyword in ["摄像头", "相机", "雷达", "总线", "嵌入式"])
+        ):
+            boosted.extend(
+                [
+                    "knowledge/hardware_bus/usb-device-troubleshooting.md",
+                    "knowledge/hardware_bus/can-eb-communication-abnormal.md",
+                    "knowledge/hardware_bus/history-case-usb-can-cascade-failure.md",
+                ]
+            )
+        if any(keyword in text for keyword in ["定位", "丢失", "漂移", "重定位", "tf", "地图", "切图", "scan"]):
+            boosted.extend(
+                [
+                    "knowledge/ros/location-loss.md",
+                    "knowledge/ros/tf-tree-incomplete-or-jumping.md",
+                    "knowledge/ros/map-loading-or-switch-failure.md",
+                    "knowledge/ros/history-case-location-ok-but-map-or-tf-mismatch.md",
+                ]
+            )
+        if any(keyword in text for keyword in ["任务卡住", "状态不推进", "状态不动", "回执", "事件没回", "执行到一半"]):
+            boosted.extend(
+                [
+                    "knowledge/task_dispatch/task-state-not-advancing.md",
+                    "knowledge/task_dispatch/history-case-task-sent-but-no-state-feedback.md",
+                    "knowledge/task_dispatch/event-condition-not-satisfied.md",
+                ]
+            )
+
+    if route == "network":
+        if any(keyword in text for keyword in ["漫游", "电梯口", "多楼层", "移动就掉线", "某个位置掉线"]):
+            boosted.extend(
+                [
+                    "knowledge/network/wifi-roaming-instability.md",
+                    "knowledge/network/customer-site-multi-floor-or-elevator-network-special-cases.md",
+                ]
+            )
+
+    if route == "rcs":
+        if any(keyword in text for keyword in ["重启后恢复", "服务拉起失败", "端口不通", "3737", "supervisor"]):
+            boosted.extend(
+                [
+                    "knowledge/backend/rcs-backend-service-failure.md",
+                    "knowledge/backend/history-case-rcs-host-reboot-recovers-but-backend-chain-broken.md",
+                ]
+            )
+
+    selected: List[str] = []
+    for doc in boosted:
+        if doc not in selected:
+            selected.append(doc)
+    return selected
 
 
 def _knowledge_inventory() -> List[str]:
@@ -224,6 +288,10 @@ def _load_doc_match_tokens(doc: str) -> Set[str]:
     return set(stem_tokens + content_tokens)
 
 
+def _doc_stem_tokens(doc: str) -> Set[str]:
+    return set(_tokenize(Path(doc).stem.replace("-", " ").replace("_", " ")))
+
+
 def _tokenize(text: str) -> List[str]:
     tokens: List[str] = []
     for chunk in _TOKEN_PATTERN.findall(text.lower()):
@@ -253,6 +321,7 @@ def select_relevant_docs(text: str, route: str, limit: int = 6) -> List[str]:
     supporting = match_supporting_docs(text, route)
     inventory = _knowledge_inventory()
     query_tokens = set(_tokenize(text))
+    lowered = text.lower()
     linked_docs = set(_linked_docs_for_route(route))
 
     scored: List[Tuple[int, int, str]] = []
@@ -265,15 +334,36 @@ def select_relevant_docs(text: str, route: str, limit: int = 6) -> List[str]:
         if doc in linked_docs:
             score += 24
         doc_tokens = _load_doc_match_tokens(doc)
+        stem_tokens = _doc_stem_tokens(doc)
         for token in query_tokens:
             if token in doc_tokens:
                 score += 8
+            if token in stem_tokens:
+                score += 18
         if route in _ROUTE_DIRECTORY_MAP:
             for directory in _ROUTE_DIRECTORY_MAP[route]:
                 if f"/{directory}/" in doc:
                     score += 6
+                    if not doc.endswith("/README.md"):
+                        score += 14
+                        if directory == "task_dispatch" and any(
+                            keyword in text for keyword in ["任务", "状态", "回执", "事件", "卡住", "推进"]
+                        ):
+                            score += 18
+                            if "history-case-task-sent-but-no-state-feedback" in doc:
+                                score += 30
+                        if directory == "ros" and any(
+                            keyword in text for keyword in ["定位", "tf", "地图", "漂移", "重定位"]
+                        ):
+                            score += 18
+                        if directory == "hardware_bus" and any(
+                            keyword in lowered for keyword in ["usb", "can", "pcan", "ch341", "uvcvideo"]
+                        ):
+                            score += 18
         if doc.endswith("/README.md"):
             score -= 20
+        elif doc.count("/") <= 1 and doc.startswith("knowledge/"):
+            score -= 18
         if route == "knowledge":
             score += 5
         if score > 0:

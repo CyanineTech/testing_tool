@@ -5,6 +5,25 @@
 - AMR 运行中出现 `CAN bus停止发布数据`、`cannot read eb`、`cannot write eb`、`resume eb_interrupt`、`reset embedded system` 等底层异常。
 - 常见于 PCAN、嵌入式控制板、电池 CAN 线、驱动板之间的链路抖动或断连。
 
+## 历史复盘优先
+
+- 如果用户描述是“刚刚异常”“重启后恢复”“某个时间点 CAN 掉了”，优先按历史故障复盘处理。
+- 先固定故障时间，再回看对应时间段的 `mobile_base.launch`、`default.launch`、`dmesg` 和 bag。
+- 不要只因为当前 `can0` 正常、当前 `lsusb -t` 正常，就排除历史 CAN / EB 链路异常。
+
+## 常见检索词
+
+- can 通信异常
+- can bus 停止发布数据
+- eb 通信异常
+- reset embedded system
+- cannot read eb
+- cannot write eb
+- pcan 异常
+- ch341 异常
+- 底层总线异常
+- 重启后恢复
+
 ## 典型现象
 
 - 机器人开机后看起来能进模式，但底层状态一直不稳定。

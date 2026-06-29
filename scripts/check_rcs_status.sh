@@ -94,10 +94,20 @@ else
     echo "[FAIL] MongoDB 异常"
 fi
 # MySQL
-if docker exec docker-mysql_5_7-1 mysqladmin ping -u root 2>/dev/null | grep -q alive; then
-    echo "[OK] MySQL 正常"
+mysql_container_state=$(docker inspect -f "{{.State.Status}}" docker-mysql_5_7-1 2>/dev/null || true)
+if [ "$mysql_container_state" != "running" ]; then
+    echo "[FAIL] MySQL 容器未运行"
 else
-    echo "[FAIL] MySQL 异常"
+    mysql_ping_output=$(docker exec docker-mysql_5_7-1 mysqladmin ping 2>&1 || true)
+    if echo "$mysql_ping_output" | grep -q "mysqld is alive"; then
+        echo "[OK] MySQL 正常"
+    elif echo "$mysql_ping_output" | grep -qi "Access denied"; then
+        echo "[WARN] MySQL 容器在运行，但当前探活鉴权不匹配"
+        echo "$mysql_ping_output" | head -n 1
+    else
+        echo "[FAIL] MySQL 异常"
+        echo "$mysql_ping_output" | head -n 2
+    fi
 fi
 '
 

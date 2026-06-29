@@ -3,6 +3,11 @@
 # 用法: ./check_amr_status.sh <amr_ip_or_hostname>
 # 示例: ./check_amr_status.sh 192.168.1.250
 #       ./check_amr_status.sh leefung-t8
+#
+# 说明:
+# - 本脚本适合做“当前状态快照”。
+# - 如果问题已经发生在过去，且机器人后来重进模式或重启过，
+#   不要直接用本脚本输出当作历史根因，优先改走 collect_logs.sh + 对应时间点日志回溯。
 
 set -e
 

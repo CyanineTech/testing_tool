@@ -11,8 +11,8 @@ class KnowledgeLoaderTests(unittest.TestCase):
         excerpt, error = load_knowledge_excerpt("knowledge/common-faults.md", max_chars=240, max_lines=8)
 
         self.assertEqual(error, "")
-        self.assertIn("常见故障排查指南", excerpt)
-        self.assertIn("USB 设备故障", excerpt)
+        self.assertIn("常见故障总入口", excerpt)
+        self.assertIn("历史复盘优先", excerpt)
         self.assertNotIn("supervisorctl status", excerpt)
         self.assertNotIn("docker ps", excerpt)
         self.assertNotIn("# 检查后端日志", excerpt)

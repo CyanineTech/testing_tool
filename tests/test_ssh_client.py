@@ -42,6 +42,7 @@ class SshClientTests(unittest.TestCase):
             wrapped = ssh_client._wrap_remote_command("rostopic echo /low_level_error -n1")
 
         self.assertIn("10s", wrapped)
+        self.assertIn("source /opt/ros/noetic/setup.bash", wrapped)
 
     def test_run_validated_ssh_command_marks_unknown_host_key_rejection(self) -> None:
         completed = subprocess.CompletedProcess(

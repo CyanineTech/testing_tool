@@ -112,10 +112,10 @@ sudoedit /etc/default/feishu_agent
 
 - 作用：是否允许 OpenAI provider 使用工具调用闭环
 - 推荐值：
-  - `0` 或不配置：试运行更稳
-  - `1`：仅在兼容网关完整支持时开启
+  - `1`：允许模型继续使用 `read_knowledge` / `secure_ssh_execute`
+  - `0`：只基于现有证据总结
 - 当前建议：
-  - 新机器首次部署先不要开
+  - 当前这套上线方案建议直接开启
 
 ### 5.3 飞书运行开关
 
@@ -297,7 +297,7 @@ FEISHU_ENABLE_REMOTE_COLLECT=1
 FEISHU_ENABLE_PROVIDER_REVIEW=1
 ```
 
-如果未来网关完整支持工具闭环，再考虑：
+当前建议直接开启：
 
 ```bash
 OPENAI_ENABLE_TOOL_CALLS=1
