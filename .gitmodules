@@ -1,0 +1,3 @@
+[submodule "amr-rcs-troubleshoot"]
+	path = amr-rcs-troubleshoot
+	url = git@github.com:CyanineTech/amr-rcs-troubleshoot.git
