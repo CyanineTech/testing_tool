@@ -1,0 +1,32 @@
+[base]
+account = your_account
+password = your_password
+token =
+
+[service]
+host = your_service_host
+port = 9990
+
+[map]
+scene_id = 2
+
+[business]
+rule = 2
+areas =
+fixed_store =
+
+[task]
+locations =
+
+[excel]
+xlsx_path = ./locations.xlsx
+sheet_name =
+
+[request]
+timeout = 15.0
+retry_count = 0
+retry_delay = 1.0
+
+[log]
+debug = false
+log_file = ./task_dispatcher.log

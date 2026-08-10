@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testing Tool Web 管理界面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .tabs {
+            display: flex;
+            background: #f5f5f5;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            background: none;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .tab:hover {
+            background: #e0e0e0;
+        }
+        
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .scripts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .script-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+            background: #fafafa;
+        }
+        
+        .script-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        
+        .script-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        
+        .script-card .description {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.6;
+            min-height: 60px;
+        }
+        
+        .script-card .workflow {
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            min-height: 80px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .config-section {
+            margin-bottom: 30px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+        
+        .config-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+        
+        .config-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .config-item label {
+            flex: 0 0 200px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .config-item input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .terminal {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 500px;
+            overflow-y: auto;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .logs-container {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .logs-list {
+            flex: 0 0 300px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            background: #fafafa;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .log-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .log-item:hover {
+            border-color: #667eea;
+        }
+        
+        .log-item.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .log-content {
+            flex: 1;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .modal-header h2 {
+            color: #667eea;
+        }
+        
+        .close {
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #aaa;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .process-info {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .running-processes-panel {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .running-processes-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .running-processes-title {
+            margin: 0;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .running-processes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .running-process-item {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .running-process-item.active {
+            border-color: #667eea;
+            box-shadow: 0 0 0 1px #667eea inset;
+        }
+
+        .running-process-main {
+            min-width: 0;
+        }
+
+        .running-process-main .name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .running-process-main .meta {
+            color: #666;
+            font-size: 12px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        .running-process-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .running-process-empty {
+            color: #666;
+            background: #fff;
+            border: 1px dashed #ddd;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        
+        .process-info h4 {
+            margin-bottom: 10px;
+            color: #856404;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .tab-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .tab-header-left {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .tab-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .hint {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 999px;
+            background: #fff;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .pill-muted {
+            color: #555;
+            background: #fafafa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Testing Tool 管理平台</h1>
+            <p>Web界面管理和执行Python脚本工具集</p>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('scripts', event)">📜 脚本管理</button>
+            <button class="tab" onclick="showTab('config', event)">⚙️ 配置管理</button>
+            <button class="tab" onclick="showTab('execute', event)">▶️ 执行脚本</button>
+            <button class="tab" onclick="showTab('logs', event)">📋 日志查看</button>
+        </div>
+        
+        <!-- 脚本管理标签页 -->
+        <div id="scripts-tab" class="tab-content active">
+            <div class="tab-header">
+                <div class="tab-header-left">
+                    <h2 style="margin: 0;">脚本列表</h2>
+                    <span class="hint">切换到此页会自动刷新</span>
+                </div>
+                <div class="tab-header-right">
+                    <label class="pill pill-muted" title="开启后：每次打开/切换到脚本管理都会刷新脚本列表（同步新增/删除）">
+                        <input type="checkbox" id="scripts-auto-refresh" checked style="margin: 0;">
+                        自动刷新
+                    </label>
+                    <button class="btn btn-primary" onclick="refreshScriptsList(true)">🔄 刷新列表</button>
+                    <span id="scripts-refresh-status" class="pill pill-muted">未刷新</span>
+                </div>
+            </div>
+            <div id="scripts-container" class="scripts-grid"></div>
+        </div>
+        
+        <!-- 配置管理标签页 -->
+        <div id="config-tab" class="tab-content">
+            <h2>配置文件管理 (config.ini)</h2>
+            <div id="config-container"></div>
+            <button class="btn btn-success" onclick="saveConfig()">💾 保存配置</button>
+        </div>
+        
+        <!-- 执行脚本标签页 -->
+        <div id="execute-tab" class="tab-content">
+            <h2>执行脚本</h2>
+            <div class="running-processes-panel">
+                <div class="running-processes-header">
+                    <h3 class="running-processes-title">运行中进程列表</h3>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                        <label class="pill pill-muted" title="开启后将在执行脚本页每5秒自动刷新一次进程列表">
+                            <input type="checkbox" id="processes-auto-refresh" checked style="margin: 0;">
+                            自动刷新(5秒)
+                        </label>
+                        <button class="btn btn-secondary" onclick="refreshRunningProcessesPanel(true)">🔄 刷新进程</button>
+                    </div>
+                </div>
+                <div class="hint" style="margin-bottom: 8px;">可手动切换查看目标，并对指定进程执行停止</div>
+                <div id="running-processes-list" class="running-processes-list"></div>
+            </div>
+
+            <div class="form-group">
+                <label>选择脚本:</label>
+                <select id="execute-script-select" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 16px;">
+                    <option value="">-- 请选择脚本 --</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>命令行参数 (可选):</label>
+                <input type="text" id="execute-args" placeholder="例如: --host ubuntu-170 --scene-id 36" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px;">
+            </div>
+            
+            <div class="form-group">
+                <label>工作流程说明:</label>
+                <div id="execute-workflow" style="background: #f5f5f5; padding: 15px; border-radius: 5px; min-height: 80px; border: 2px solid #ddd;"></div>
+            </div>
+            
+            <button class="btn btn-success" onclick="executeScript()">▶️ 执行脚本</button>
+            <button class="btn btn-danger" onclick="stopScript()" id="stop-btn" style="display: none;">⏹️ 停止执行</button>
+            
+            <div id="process-info" style="display: none;"></div>
+            <div id="terminal-output" class="terminal" style="display: none;"></div>
+        </div>
+        
+        <!-- 日志查看标签页 -->
+        <div id="logs-tab" class="tab-content">
+            <h2>日志文件</h2>
+            <div class="logs-container">
+                <div class="logs-list" id="logs-list"></div>
+                <div class="log-content">
+                    <h3>日志内容</h3>
+                    <button class="btn btn-primary" onclick="refreshLogContent()">🔄 刷新</button>
+                    <div id="log-content-display" class="terminal"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 编辑脚本模态框 -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>编辑脚本信息</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="edit-alert"></div>
+            <form id="edit-form">
+                <input type="hidden" id="edit-script-name">
+                <div class="form-group">
+                    <label>脚本名称:</label>
+                    <input type="text" id="edit-script-display-name" readonly style="width: 100%; padding: 10px; background: #f5f5f5; border: 2px solid #ddd; border-radius: 5px;">
+                </div>
+                <div class="form-group">
+                    <label>脚本描述:</label>
+                    <textarea id="edit-description" rows="6"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>工作流程:</label>
+                    <textarea id="edit-workflow" rows="8" placeholder="描述脚本的执行流程、前置条件、参数说明等"></textarea>
+                </div>
+                <button type="button" class="btn btn-success" onclick="saveScriptInfo()">💾 保存</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let scripts = {};
+        let config = {};
+        let currentLogFile = null;
+        let currentProcessId = null;
+        let eventSource = null;
+        let runningProcesses = [];
+        let processAutoRefreshTimer = null;
+        const PROCESS_STORAGE_KEY = 'testing_tool_active_process_id';
+        const PROCESS_AUTO_REFRESH_INTERVAL_MS = 5000;
+
+        let scriptsRefreshInFlight = false;
+        let lastScriptsRefreshAt = 0;
+        const scriptsAutoRefreshMinIntervalMs = 1500;
+        
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 默认在脚本页：先强制刷新一次（同步新增/删除），再加载列表
+            refreshScriptsList(false);
+            loadConfig();
+            loadLogs();
+            restoreProcessState();
+            setupProcessAutoRefresh();
+        });
+
+        function isExecuteTabActive() {
+            const executeTab = document.getElementById('execute-tab');
+            return !!(executeTab && executeTab.classList.contains('active'));
+        }
+
+        function isProcessAutoRefreshEnabled() {
+            const checkbox = document.getElementById('processes-auto-refresh');
+            return !!(checkbox && checkbox.checked);
+        }
+
+        function setupProcessAutoRefresh() {
+            if (processAutoRefreshTimer) {
+                clearInterval(processAutoRefreshTimer);
+            }
+
+            const checkbox = document.getElementById('processes-auto-refresh');
+            if (checkbox) {
+                checkbox.addEventListener('change', function() {
+                    if (this.checked && isExecuteTabActive()) {
+                        refreshRunningProcessesPanel(false);
+                    }
+                });
+            }
+
+            processAutoRefreshTimer = setInterval(() => {
+                if (!isExecuteTabActive()) {
+                    return;
+                }
+                if (!isProcessAutoRefreshEnabled()) {
+                    return;
+                }
+                refreshRunningProcessesPanel(false);
+            }, PROCESS_AUTO_REFRESH_INTERVAL_MS);
+        }
+
+        function sortedRunningProcesses(items) {
+            return items.slice().sort((a, b) => {
+                return new Date(b.start_time) - new Date(a.start_time);
+            });
+        }
+
+        function findProcessById(processId) {
+            return runningProcesses.find(item => item.process_id === processId) || null;
+        }
+
+        async function fetchRunningProcesses() {
+            const response = await fetch('/api/processes');
+            const all = await response.json();
+            const running = Array.isArray(all) ? all.filter(item => item.running) : [];
+            return sortedRunningProcesses(running);
+        }
+
+        function renderRunningProcessesPanel() {
+            const container = document.getElementById('running-processes-list');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (runningProcesses.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'running-process-empty';
+                empty.textContent = '当前没有运行中的进程';
+                container.appendChild(empty);
+                return;
+            }
+
+            runningProcesses.forEach(processInfo => {
+                const item = document.createElement('div');
+                item.className = 'running-process-item';
+                if (processInfo.process_id === currentProcessId) {
+                    item.classList.add('active');
+                }
+
+                const main = document.createElement('div');
+                main.className = 'running-process-main';
+
+                const name = document.createElement('div');
+                name.className = 'name';
+                name.textContent = processInfo.script_name || '未知脚本';
+
+                const meta = document.createElement('div');
+                meta.className = 'meta';
+                meta.textContent = `PID: ${processInfo.process_id} | 启动: ${new Date(processInfo.start_time).toLocaleString()}`;
+
+                const actions = document.createElement('div');
+                actions.className = 'running-process-actions';
+
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'btn btn-primary';
+                viewBtn.textContent = processInfo.process_id === currentProcessId ? '重新连接' : '查看';
+                viewBtn.onclick = () => {
+                    switchActiveProcess(processInfo.process_id);
+                };
+
+                const stopBtn = document.createElement('button');
+                stopBtn.className = 'btn btn-danger';
+                stopBtn.textContent = '停止';
+                stopBtn.onclick = () => {
+                    stopProcessById(processInfo.process_id);
+                };
+
+                main.appendChild(name);
+                main.appendChild(meta);
+                actions.appendChild(viewBtn);
+                actions.appendChild(stopBtn);
+                item.appendChild(main);
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        function getStoredProcessId() {
+            try {
+                return localStorage.getItem(PROCESS_STORAGE_KEY);
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function setStoredProcessId(processId) {
+            try {
+                if (processId) {
+                    localStorage.setItem(PROCESS_STORAGE_KEY, processId);
+                } else {
+                    localStorage.removeItem(PROCESS_STORAGE_KEY);
+                }
+            } catch (_) {
+                // ignore
+            }
+        }
+
+        function setRunningUiState(processInfo) {
+            const stopBtn = document.getElementById('stop-btn');
+            const processInfoEl = document.getElementById('process-info');
+            const terminal = document.getElementById('terminal-output');
+
+            if (stopBtn) {
+                stopBtn.style.display = 'inline-block';
+            }
+
+            if (processInfoEl) {
+                processInfoEl.innerHTML = `
+                    <div class="process-info">
+                        <h4>⚙️ 进程运行中</h4>
+                        <p>脚本: ${processInfo.script_name || '未知脚本'}</p>
+                        <p>进程ID: ${processInfo.process_id}</p>
+                        <p>启动时间: ${new Date(processInfo.start_time).toLocaleString()}</p>
+                    </div>
+                `;
+                processInfoEl.style.display = 'block';
+            }
+
+            if (terminal) {
+                terminal.style.display = 'block';
+                if (!terminal.innerHTML.trim()) {
+                    terminal.innerHTML = '已恢复到正在运行的进程，正在持续接收输出...\n';
+                }
+            }
+
+            renderRunningProcessesPanel();
+        }
+
+        function clearRunningUiState(message) {
+            const stopBtn = document.getElementById('stop-btn');
+            const processInfoEl = document.getElementById('process-info');
+            const terminal = document.getElementById('terminal-output');
+
+            if (stopBtn) {
+                stopBtn.style.display = 'none';
+            }
+            if (processInfoEl) {
+                processInfoEl.style.display = 'none';
+                processInfoEl.innerHTML = '';
+            }
+            if (message && terminal) {
+                terminal.style.display = 'block';
+                terminal.innerHTML += `${message}\n`;
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+
+            currentProcessId = null;
+            setStoredProcessId(null);
+            renderRunningProcessesPanel();
+        }
+
+        async function restoreProcessState() {
+            try {
+                runningProcesses = await fetchRunningProcesses();
+                renderRunningProcessesPanel();
+
+                if (runningProcesses.length === 0) {
+                    clearRunningUiState('没有检测到正在运行的进程');
+                    return;
+                }
+
+                const storedProcessId = getStoredProcessId();
+                let target = null;
+
+                if (storedProcessId) {
+                    target = runningProcesses.find(item => item.process_id === storedProcessId) || null;
+                }
+
+                if (!target) {
+                    target = runningProcesses[0];
+                }
+
+                if (!target) {
+                    clearRunningUiState('没有检测到正在运行的进程');
+                    return;
+                }
+
+                currentProcessId = target.process_id;
+                setStoredProcessId(currentProcessId);
+                setRunningUiState(target);
+                connectToProcessOutput(currentProcessId, true);
+            } catch (error) {
+                console.error('恢复进程状态失败:', error);
+            }
+        }
+
+        async function refreshRunningProcessesPanel(showNotice = false) {
+            try {
+                runningProcesses = await fetchRunningProcesses();
+                const selectedExists = !!findProcessById(currentProcessId);
+
+                if (!selectedExists && currentProcessId) {
+                    clearRunningUiState('当前选择的进程已结束');
+                }
+
+                renderRunningProcessesPanel();
+                if (showNotice) {
+                    console.log('运行中进程列表已刷新');
+                }
+            } catch (error) {
+                console.error('刷新运行中进程列表失败:', error);
+            }
+        }
+
+        async function switchActiveProcess(processId) {
+            const target = findProcessById(processId);
+            const terminal = document.getElementById('terminal-output');
+            terminal.style.display = 'block';
+            terminal.innerHTML = `正在连接进程 ${processId}...\n`;
+
+            if (!target) {
+                await refreshRunningProcessesPanel(false);
+                alert('目标进程不存在或已结束');
+                return;
+            }
+
+            currentProcessId = processId;
+            setStoredProcessId(processId);
+
+            try {
+                const recentResp = await fetch(`/api/process/${processId}/recent?lines=300`);
+                if (recentResp.ok) {
+                    const recent = await recentResp.json();
+                    const history = recent.content || '';
+                    terminal.innerHTML = history
+                        ? `${history}\n--- 已切换到实时输出 ---\n`
+                        : `进程 ${processId} 暂无历史输出，等待实时日志...\n`;
+                } else {
+                    terminal.innerHTML += '未能获取历史输出，将直接接收实时日志...\n';
+                }
+            } catch (e) {
+                terminal.innerHTML += '历史输出加载失败，将直接接收实时日志...\n';
+            }
+
+            setRunningUiState(target);
+            connectToProcessOutput(processId, true);
+        }
+        
+        // 切换标签页
+        function showTab(tabName, evt) {
+            // 隐藏所有标签页
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的标签页
+            document.getElementById(tabName + '-tab').classList.add('active');
+            if (evt && evt.target) {
+                evt.target.classList.add('active');
+            }
+            
+            // 如果切换到脚本页，自动刷新脚本列表
+            if (tabName === 'scripts') {
+                const autoRefresh = document.getElementById('scripts-auto-refresh');
+                if (autoRefresh && autoRefresh.checked) {
+                    refreshScriptsList(false);
+                } else {
+                    loadScripts();
+                }
+            }
+
+            // 如果切换到日志页，刷新日志列表
+            if (tabName === 'logs') {
+                loadLogs();
+            }
+
+            if (tabName === 'execute') {
+                refreshRunningProcessesPanel(false);
+            }
+        }
+
+        function setScriptsRefreshStatus(text, isError = false) {
+            const el = document.getElementById('scripts-refresh-status');
+            if (!el) return;
+            el.textContent = text;
+            el.style.borderColor = isError ? '#f5c6cb' : '#e0e0e0';
+            el.style.background = isError ? '#f8d7da' : '#fafafa';
+            el.style.color = isError ? '#721c24' : '#555';
+        }
+
+        async function refreshScriptsList(showToastOnSuccess) {
+            const now = Date.now();
+            if (scriptsRefreshInFlight) return;
+            if (now - lastScriptsRefreshAt < scriptsAutoRefreshMinIntervalMs) return;
+            scriptsRefreshInFlight = true;
+            lastScriptsRefreshAt = now;
+
+            setScriptsRefreshStatus('刷新中...');
+            try {
+                const resp = await fetch('/api/scripts/refresh', { method: 'POST' });
+                const result = await resp.json();
+
+                if (result.status === 'success') {
+                    const added = Number(result.added ?? 0);
+                    const removed = Number(result.removed ?? 0);
+                    const total = Number(result.total ?? 0);
+                    const ts = new Date().toLocaleTimeString();
+                    setScriptsRefreshStatus(`added ${added} / removed ${removed} / total ${total} · ${ts}`);
+                    await loadScripts();
+                    if (showToastOnSuccess) {
+                        // 轻量提示：避免弹窗打断自动刷新
+                        console.log('脚本列表已刷新', result);
+                    }
+                } else {
+                    setScriptsRefreshStatus('刷新失败', true);
+                    console.error('刷新脚本失败:', result);
+                    await loadScripts();
+                }
+            } catch (e) {
+                setScriptsRefreshStatus('刷新异常', true);
+                console.error('刷新脚本异常:', e);
+                try {
+                    await loadScripts();
+                } catch (_) {
+                    // ignore
+                }
+            } finally {
+                scriptsRefreshInFlight = false;
+            }
+        }
+        
+        // 加载脚本列表
+        async function loadScripts() {
+            try {
+                const response = await fetch('/api/scripts');
+                scripts = await response.json();
+                displayScripts();
+                updateExecuteScriptSelect();
+            } catch (error) {
+                console.error('加载脚本失败:', error);
+            }
+        }
+        
+        // 显示脚本列表
+        function displayScripts() {
+            const container = document.getElementById('scripts-container');
+            container.innerHTML = '';
+            
+            for (const [name, script] of Object.entries(scripts)) {
+                const card = document.createElement('div');
+                card.className = 'script-card';
+                card.innerHTML = `
+                    <h3>📄 ${script.name}</h3>
+                    <div class="description">${script.description || '暂无描述'}</div>
+                    <div class="workflow">${script.workflow || '暂无工作流程说明'}</div>
+                    <button class="btn btn-primary" onclick="editScript('${name}')">✏️ 编辑</button>
+                    <button class="btn btn-secondary" onclick="downloadScript('${name}')">⬇️ 下载</button>
+                `;
+                container.appendChild(card);
+            }
+        }
+        
+        // 更新执行脚本下拉框
+        function updateExecuteScriptSelect() {
+            const select = document.getElementById('execute-script-select');
+            const previous = select.value;
+            select.innerHTML = '<option value="">-- 请选择脚本 --</option>';
+            
+            for (const [name, script] of Object.entries(scripts)) {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = script.name;
+                select.appendChild(option);
+            }
+
+            if (previous && scripts[previous]) {
+                select.value = previous;
+                document.getElementById('execute-workflow').textContent =
+                    scripts[previous].workflow || '暂无工作流程说明';
+            }
+            
+            select.onchange = function() {
+                const scriptName = this.value;
+                if (scriptName && scripts[scriptName]) {
+                    document.getElementById('execute-workflow').textContent = 
+                        scripts[scriptName].workflow || '暂无工作流程说明';
+                } else {
+                    document.getElementById('execute-workflow').textContent = '';
+                }
+            };
+        }
+        
+        // 编辑脚本
+        function editScript(scriptName) {
+            const script = scripts[scriptName];
+            document.getElementById('edit-script-name').value = scriptName;
+            document.getElementById('edit-script-display-name').value = script.name;
+            document.getElementById('edit-description').value = script.description || '';
+            document.getElementById('edit-workflow').value = script.workflow || '';
+            document.getElementById('edit-alert').innerHTML = '';
+            document.getElementById('edit-modal').style.display = 'block';
+        }
+        
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('edit-modal').style.display = 'none';
+        }
+        
+        // 保存脚本信息
+        async function saveScriptInfo() {
+            const scriptName = document.getElementById('edit-script-name').value;
+            const description = document.getElementById('edit-description').value;
+            const workflow = document.getElementById('edit-workflow').value;
+            
+            try {
+                const response = await fetch(`/api/scripts/${scriptName}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({description, workflow})
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    document.getElementById('edit-alert').innerHTML = 
+                        '<div class="alert alert-success">✅ ' + result.message + '</div>';
+                    setTimeout(() => {
+                        closeModal();
+                        loadScripts();
+                    }, 1500);
+                } else {
+                    document.getElementById('edit-alert').innerHTML = 
+                        '<div class="alert alert-error">❌ ' + result.message + '</div>';
+                }
+            } catch (error) {
+                document.getElementById('edit-alert').innerHTML = 
+                    '<div class="alert alert-error">❌ 保存失败: ' + error.message + '</div>';
+            }
+        }
+        
+        // 下载脚本
+        function downloadScript(scriptName) {
+            window.location.href = `/api/download/${scriptName}`;
+        }
+        
+        // 加载配置
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                config = await response.json();
+                displayConfig();
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+        
+        // 显示配置
+        function displayConfig() {
+            const container = document.getElementById('config-container');
+            container.innerHTML = '';
+            
+            for (const [section, options] of Object.entries(config)) {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.className = 'config-section';
+                
+                let html = `<h3>[${section}]</h3>`;
+                for (const [key, value] of Object.entries(options)) {
+                    html += `
+                        <div class="config-item">
+                            <label>${key}:</label>
+                            <input type="text" 
+                                   data-section="${section}" 
+                                   data-key="${key}" 
+                                   value="${value || ''}"
+                                   class="config-input">
+                        </div>
+                    `;
+                }
+                sectionDiv.innerHTML = html;
+                container.appendChild(sectionDiv);
+            }
+        }
+        
+        // 保存配置
+        async function saveConfig() {
+            const newConfig = {};
+            
+            document.querySelectorAll('.config-input').forEach(input => {
+                const section = input.dataset.section;
+                const key = input.dataset.key;
+                const value = input.value;
+                
+                if (!newConfig[section]) {
+                    newConfig[section] = {};
+                }
+                newConfig[section][key] = value;
+            });
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(newConfig)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    alert('✅ ' + result.message);
+                    loadConfig();
+                } else {
+                    alert('❌ ' + result.message);
+                }
+            } catch (error) {
+                alert('❌ 保存失败: ' + error.message);
+            }
+        }
+        
+        // 执行脚本
+        async function executeScript() {
+            const scriptName = document.getElementById('execute-script-select').value;
+            if (!scriptName) {
+                alert('请选择要执行的脚本');
+                return;
+            }
+            
+            const argsStr = document.getElementById('execute-args').value.trim();
+            const args = argsStr ? argsStr.split(/\s+/) : [];
+            
+            // 清空终端输出
+            const terminal = document.getElementById('terminal-output');
+            terminal.innerHTML = '正在启动脚本...\n';
+            terminal.style.display = 'block';
+            
+            try {
+                const response = await fetch(`/api/execute/${scriptName}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({args})
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    currentProcessId = result.process_id;
+                    setStoredProcessId(currentProcessId);
+                    runningProcesses = sortedRunningProcesses([
+                        {
+                            process_id: currentProcessId,
+                            script_name: scriptName,
+                            start_time: new Date().toISOString(),
+                            running: true
+                        },
+                        ...runningProcesses.filter(item => item.process_id !== currentProcessId)
+                    ]);
+                    setRunningUiState({
+                        process_id: currentProcessId,
+                        script_name: scriptName,
+                        start_time: new Date().toISOString()
+                    });
+                    
+                    // 开始接收输出
+                    connectToProcessOutput(currentProcessId);
+                } else {
+                    terminal.innerHTML += '❌ 启动失败: ' + result.message + '\n';
+                }
+            } catch (error) {
+                terminal.innerHTML += '❌ 执行失败: ' + error.message + '\n';
+            }
+        }
+        
+        function terminalIsNearBottom(terminal, threshold = 24) {
+            return terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight <= threshold;
+        }
+
+        // 连接到进程输出流
+        function connectToProcessOutput(processId, isRecovered = false) {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource(`/api/process/${processId}/output`);
+            const terminal = document.getElementById('terminal-output');
+            terminal.style.display = 'block';
+
+            if (isRecovered) {
+                terminal.innerHTML += `🔄 已重新连接到进程 ${processId}\n`;
+            }
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'output') {
+                    const shouldAutoScroll = terminalIsNearBottom(terminal);
+                    terminal.innerHTML += data.data;
+                    if (shouldAutoScroll) {
+                        terminal.scrollTop = terminal.scrollHeight;
+                    }
+                } else if (data.type === 'end') {
+                    terminal.innerHTML += '\n✅ 进程已结束\n';
+                    eventSource.close();
+                    runningProcesses = runningProcesses.filter(item => item.process_id !== processId);
+                    clearRunningUiState();
+                } else if (data.type === 'error') {
+                    terminal.innerHTML += '\n❌ 错误: ' + data.message + '\n';
+                    eventSource.close();
+                    runningProcesses = runningProcesses.filter(item => item.process_id !== processId);
+                    clearRunningUiState();
+                }
+            };
+            
+            eventSource.onerror = function() {
+                terminal.innerHTML += '\n⚠️ 连接中断\n';
+                eventSource.close();
+                // 网络闪断时保留 currentProcessId，允许用户继续点击“停止执行”
+            };
+        }
+        
+        // 停止脚本
+        async function stopScript() {
+            if (!currentProcessId) {
+                return;
+            }
+
+            stopProcessById(currentProcessId);
+        }
+
+        async function stopProcessById(processId) {
+            if (!processId) {
+                return;
+            }
+            
+            if (!confirm('确定要停止当前脚本执行吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/process/${processId}/stop`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                const terminal = document.getElementById('terminal-output');
+                
+                if (result.status === 'success') {
+                    terminal.innerHTML += `\n⏹️ 已停止进程 ${processId}\n`;
+                } else {
+                    terminal.innerHTML += `\n❌ 停止失败(${processId}): ${result.message}\n`;
+                }
+                
+                if (eventSource && currentProcessId === processId) {
+                    eventSource.close();
+                }
+                runningProcesses = runningProcesses.filter(item => item.process_id !== processId);
+
+                if (currentProcessId === processId) {
+                    clearRunningUiState();
+                } else {
+                    renderRunningProcessesPanel();
+                }
+
+                refreshRunningProcessesPanel(false);
+            } catch (error) {
+                const terminal = document.getElementById('terminal-output');
+                terminal.innerHTML += '\n❌ 停止失败: ' + error.message + '\n';
+            }
+        }
+        
+        // 加载日志列表
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const logs = await response.json();
+                displayLogs(logs);
+            } catch (error) {
+                console.error('加载日志失败:', error);
+            }
+        }
+        
+        // 显示日志列表
+        function displayLogs(logs) {
+            const container = document.getElementById('logs-list');
+            container.innerHTML = '<h3>日志文件列表</h3>';
+            
+            if (logs.length === 0) {
+                container.innerHTML += '<p>暂无日志文件</p>';
+                return;
+            }
+            
+            logs.forEach(log => {
+                const logItem = document.createElement('div');
+                logItem.className = 'log-item';
+                logItem.innerHTML = `
+                    <strong>${log.name}</strong><br>
+                    <small>大小: ${(log.size / 1024).toFixed(2)} KB</small><br>
+                    <small>修改: ${new Date(log.modified).toLocaleString()}</small>
+                `;
+                logItem.onclick = (e) => loadLogContent(log.name, e);
+                container.appendChild(logItem);
+            });
+        }
+        
+        // 加载日志内容
+        async function loadLogContent(logName, clickEvent) {
+            currentLogFile = logName;
+            
+            // 更新选中状态
+            if (clickEvent) {
+                document.querySelectorAll('.log-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                clickEvent.target.closest('.log-item').classList.add('active');
+            }
+            
+            try {
+                const response = await fetch(`/api/logs/${logName}`);
+                const result = await response.json();
+                
+                const display = document.getElementById('log-content-display');
+                display.innerHTML = result.content || '日志为空';
+                
+                if (result.total_lines > result.shown_lines) {
+                    display.innerHTML = `显示最后 ${result.shown_lines} / ${result.total_lines} 行\n\n` + display.innerHTML;
+                }
+            } catch (error) {
+                document.getElementById('log-content-display').innerHTML = 
+                    '❌ 加载失败: ' + error.message;
+            }
+        }
+        
+        // 刷新日志内容
+        function refreshLogContent() {
+            if (currentLogFile) {
+                loadLogContent(currentLogFile);
+            }
+        }
+        
+        // 关闭模态框（点击外部）
+        window.onclick = function(event) {
+            const modal = document.getElementById('edit-modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+image.tar
+*.tar.gz
+*.log
+*.log.*
+__pycache__/
+*.py[cod]
+runtime/config.ini
+runtime/logs/
+.env

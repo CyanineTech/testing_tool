@@ -1,0 +1,27 @@
+services:
+  testing-tool-web:
+    image: ${APP_IMAGE:-testing-tool-web:offline-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: testing_tool_web
+    working_dir: /app/service
+    command: ["python", "/app/service/web_service.py"]
+    ports:
+      - "5000:5000"
+    environment:
+      TZ: Asia/Shanghai
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 5000
+      CONFIG_FILE: /app/runtime/config.ini
+      SCRIPTS_DIR: /app/scripts
+      LOGS_DIR: /app/runtime/logs
+      DESCRIPTIONS_FILE: /app/runtime/script_descriptions.json
+    volumes:
+      - ./service:/app/service
+      - ./scripts:/app/scripts
+      - ./runtime/config.ini:/app/runtime/config.ini
+      - ./runtime/config.ini:/app/scripts/config.ini
+      - ./runtime/script_descriptions.json:/app/runtime/script_descriptions.json
+      - ./runtime/logs:/app/runtime/logs
+    restart: unless-stopped

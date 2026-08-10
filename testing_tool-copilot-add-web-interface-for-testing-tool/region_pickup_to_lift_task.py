@@ -5,6 +5,7 @@ import random
 import time
 import requests
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from typing import Dict, List, Optional, Set, Tuple, Union, Any
@@ -141,7 +142,13 @@ def init_loggers(log_file: str, debug: bool):
         os.makedirs(log_dir)
 
     # 1. 文件日志（详细，保留所有信息）
-    file_handler = logging.FileHandler(log_file, encoding="utf-8", mode="a")
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=50 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+        mode="a",
+    )
     file_formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"

@@ -2,29 +2,46 @@ import requests
 import mysql.connector
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 import json
 import random
+import configparser
+import os
+import subprocess
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGIN_SCRIPT_PATH = os.path.join(SCRIPT_DIR, "login.py")
+CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.ini")
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('task_dispatcher.log'),
+        RotatingFileHandler(
+            'task_dispatcher.log',
+            maxBytes=50 * 1024 * 1024,
+            backupCount=5,
+            encoding='utf-8'
+        ),
         logging.StreamHandler()
     ]
 )
 
 class TaskDispatcher:
     def __init__(self):
+        self.host = 'devel-105'
+        self.port = 9990
         self.db_config = {
-            'host': 'devel-105',
+            'host': self.host,
             'port': 13306,
             'user': 'root',
             'password': 'wudier**//',
             'database': 'map_server'
         }
-        self.api_url = "http://devel-105:9990/dispatch_server/dispatch/start/location_call/task/"
+        self.api_url = f"http://{self.host}:{self.port}/dispatch_server/dispatch/start/location_call/task/"
+        self.auth_headers = {}
         
         # 定义区域类型规则
         self.area_rules = {
@@ -53,6 +70,57 @@ class TaskDispatcher:
             'cutting_pickup': 0,
             'buffer_pickup': 0
         }
+
+    def _load_token(self):
+        config = configparser.ConfigParser(
+            interpolation=None,
+            inline_comment_prefixes=(';', '#')
+        )
+        try:
+            if not config.read(CONFIG_PATH, encoding='utf-8'):
+                logging.error(f"❌ 无法读取配置文件: {CONFIG_PATH}")
+                return None
+            token = config.get('base', 'token', fallback='').strip()
+            if token.lower().startswith('bearer '):
+                token = token[7:].strip()
+            return token or None
+        except (configparser.Error, OSError) as e:
+            logging.error(f"❌ 读取登录 token 失败: {e}")
+            return None
+
+    def login_before_run(self):
+        if not os.path.isfile(LOGIN_SCRIPT_PATH):
+            logging.error(f"❌ 未找到登录脚本: {LOGIN_SCRIPT_PATH}")
+            return False
+
+        logging.info(f"🔐 开始登录服务: {self.host}:{self.port}")
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable, '-u', LOGIN_SCRIPT_PATH,
+                    '--config', CONFIG_PATH,
+                    '--host', self.host,
+                    '--port', str(self.port),
+                ],
+                cwd=SCRIPT_DIR,
+                check=False,
+            )
+        except OSError as e:
+            logging.error(f"❌ 调用 login.py 失败: {e}")
+            return False
+
+        if result.returncode != 0:
+            logging.error(f"❌ 登录失败，返回码: {result.returncode}")
+            return False
+
+        token = self._load_token()
+        if not token:
+            logging.error("❌ 登录完成，但 config.ini 中没有有效 token")
+            return False
+
+        self.auth_headers = {'Authorization': f'Bearer {token}'}
+        logging.info("✅ 登录成功，已加载最新 token")
+        return True
     
     def get_area_type(self, area):
         """根据区域名称判断区域类型"""
@@ -208,24 +276,58 @@ class TaskDispatcher:
         logging.info(f"📤 PUT请求参数: {json.dumps(payload, ensure_ascii=False)}")
         
         try:
-            response = requests.put(self.api_url, json=payload, timeout=10)
+            response = requests.put(
+                self.api_url,
+                json=payload,
+                headers=self.auth_headers,
+                timeout=10,
+            )
             logging.info(f"📥 响应状态码: {response.status_code}")
             
             if response.status_code == 200:
-                response_data = response.json()
-                task_id = response_data.get('data', {}).get('running_id', '未知')
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    logging.error(f"❌ 接口返回非JSON响应: {response.text[:500]}")
+                    return False
+
+                if not isinstance(response_data, dict):
+                    logging.error(f"❌ 接口返回格式异常: {response_data!r}")
+                    return False
+
+                if response_data.get('success') is not True:
+                    msg = response_data.get('msg') or {}
+                    detail = msg.get('detail') if isinstance(msg, dict) else {}
+                    detail = detail if isinstance(detail, dict) else {}
+                    error_info = detail.get('info') or detail.get('detail') or '未知业务错误'
+                    error_id = detail.get('error_id', '未知')
+                    logging.error(f"❌ 任务失败原因: {error_info} (error_id={error_id})")
+                    logging.error(
+                        f"❌ 任务业务失败: {json.dumps(response_data, ensure_ascii=False)}"
+                    )
+                    return False
+
+                response_payload = response_data.get('data')
+                if not isinstance(response_payload, dict):
+                    logging.error(
+                        f"❌ 任务响应缺少有效data: {json.dumps(response_data, ensure_ascii=False)}"
+                    )
+                    return False
+
+                task_id = response_payload.get('running_id', '未知')
                 
                 # 获取区域类型信息用于日志
-                pickup_area_type = self.get_area_type(self.get_location_area(location_id))
+                pickup_location_area = self.get_location_area(location_id)
+                pickup_area_type = self.get_area_type(pickup_location_area)
                 storage_area_type = self.get_area_type(area)
                 
                 logging.info(f"✅ 任务发送成功! 任务ID: {task_id}")
-                logging.info(f"📋 任务流向: {pickup_area_type}区({self.get_location_area(location_id)}) → {storage_area_type}区({area})")
+                logging.info(f"📋 任务流向: {pickup_area_type}区({pickup_location_area}) → {storage_area_type}区({area})")
                 return True
             else:
                 logging.error(f"❌ 任务发送失败: {response.status_code} - {response.text}")
                 return False
-        except requests.exceptions.RequestException as e:
+        except (requests.exceptions.RequestException, TypeError, AttributeError) as e:
             logging.error(f"❌ 请求异常: {e}")
             return False
     
@@ -339,4 +441,6 @@ class TaskDispatcher:
 
 if __name__ == "__main__":
     dispatcher = TaskDispatcher()
+    if not dispatcher.login_before_run():
+        raise SystemExit(1)
     dispatcher.run()

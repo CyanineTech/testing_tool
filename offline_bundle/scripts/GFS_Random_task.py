@@ -1,6 +1,16 @@
+import argparse
+import configparser
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+import random
 import requests
 import signal
+import subprocess
+import sys
 import threading
+import time
 try:
     import mysql.connector
 except ModuleNotFoundError as e:
@@ -16,15 +26,13 @@ except ModuleNotFoundError as e:
             "  pip3 install mysql-connector-python\n"
         )
     raise
-import time
-import logging
-import json
-import random
-import argparse
 from typing import Dict, List, Optional, Set
 
 # 用于响应web_service.py的停止请求（SIGTERM）
 STOP_EVENT = threading.Event()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGIN_SCRIPT_PATH = os.path.join(SCRIPT_DIR, "login.py")
+DEFAULT_CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.ini")
 
 
 def _handle_stop_signal(sig, frame):
@@ -35,12 +43,83 @@ def _handle_stop_signal(sig, frame):
         pass
     STOP_EVENT.set()
 
+
+def _load_token_from_config(config_path: str) -> Optional[str]:
+    """从 config.ini 的 [base] 段读取 Bearer Token。"""
+    if not os.path.exists(config_path):
+        logging.error(f"❌ 配置文件不存在：{config_path}")
+        return None
+
+    config = configparser.ConfigParser(
+        interpolation=None,
+        inline_comment_prefixes=(";", "#"),
+    )
+
+    try:
+        if not config.read(config_path, encoding="utf-8"):
+            logging.error(f"❌ 读取配置文件失败：{config_path}")
+            return None
+    except Exception as e:
+        logging.error(f"❌ 解析配置文件失败：{e}")
+        return None
+
+    if not config.has_section("base"):
+        logging.error("❌ 配置文件缺少 [base] 段")
+        return None
+
+    if not config.has_option("base", "token"):
+        logging.error("❌ 配置文件 [base] 段缺少 token")
+        return None
+
+    token = config.get("base", "token", fallback="").strip()
+    if not token:
+        logging.error("❌ 配置文件 [base] 段的 token 为空")
+        return None
+
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+
+    return token
+
+
+def _run_startup_login(config_path: str) -> Optional[str]:
+    """程序启动时执行同目录下的 login.py，并返回 config.ini 里的 token。"""
+    if not os.path.exists(LOGIN_SCRIPT_PATH):
+        logging.error(f"❌ 未找到登录脚本：{LOGIN_SCRIPT_PATH}")
+        return None
+
+    try:
+        logging.info(f"🔐 启动登录脚本：{LOGIN_SCRIPT_PATH}")
+        result = subprocess.run(
+            [sys.executable, "-u", LOGIN_SCRIPT_PATH, "--config", config_path],
+            check=False,
+        )
+    except Exception as e:
+        logging.error(f"❌ 执行登录脚本失败：{e}")
+        return None
+
+    if result.returncode != 0:
+        logging.error(f"❌ 登录脚本执行失败，返回码：{result.returncode}")
+        return None
+
+    token = _load_token_from_config(config_path)
+    if not token:
+        logging.error("❌ 登录完成后未能从 config.ini 的 [base] 段读取到 token")
+        return None
+
+    return token
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('warehouse_task_dispatcher.log'),
+        RotatingFileHandler(
+            'warehouse_task_dispatcher.log',
+            maxBytes=50 * 1024 * 1024,
+            backupCount=5,
+            encoding='utf-8'
+        ),
         logging.StreamHandler()
     ]
 )
@@ -48,7 +127,8 @@ logging.basicConfig(
 class WarehouseTaskDispatcher:
     def __init__(self, weights=None, host: Optional[str] = None, scene_id: Optional[int] = None,
                  release_locations: bool = False, release_is_all: bool = False,
-                 release_interval_seconds: int = 30 * 60):
+                 release_interval_seconds: int = 30 * 60,
+                 bearer_token: Optional[str] = None):
         base_host = (host or 'ubuntu-180').strip()
         base_scene_id = scene_id if scene_id is not None else 68
         self.db_config = {
@@ -67,6 +147,10 @@ class WarehouseTaskDispatcher:
         self.release_is_all = release_is_all
         self.release_interval_seconds = int(release_interval_seconds)
         self._last_release_ts: Optional[float] = None
+        self.bearer_token = (bearer_token or "").strip()
+        self.release_headers = {}
+        if self.bearer_token:
+            self.release_headers = {"Authorization": f"Bearer {self.bearer_token}"}
 
         # ===== storage_area 状态监控（按area_index最大记录的use_status） =====
         # 说明：每次发布任务前会批量查询一次DB（脚本本身每轮sleep 30s，因此天然是30s频率）
@@ -91,7 +175,7 @@ class WarehouseTaskDispatcher:
                     '1061', '1062', '1064', '1067', '1070', '1072', '1074', 
                     '1078', '1075', '1080', '1079'
                 ],
-                'pickup_area': '103'  # 103仓库的取货区域
+                'pickup_area': '1103'  # 103仓库的取货区域
             },
             '102': {
                 'storage_areas': [
@@ -100,7 +184,7 @@ class WarehouseTaskDispatcher:
                     '1044', '1048', '1050', '1053', '1065', '1069', '1071', 
                     '1073', '1076', '1083'
                 ],
-                'pickup_area': '102'  # 102仓库的取货区域
+                'pickup_area': '1103'  # 102仓库的取货区域
             },
             '101': {
                 'storage_areas': [
@@ -109,7 +193,7 @@ class WarehouseTaskDispatcher:
                     '1036', '1039', '1043', '1046', '1056', '1057', '1058', 
                     '1059/1063', '1066/1068', '1081', '1086', '1084', '1087'
                 ],
-                'pickup_area': '101'  # 101仓库的取货区域
+                'pickup_area': '101Q'  # 101仓库的取货区域
             }
         }
         
@@ -245,12 +329,18 @@ class WarehouseTaskDispatcher:
                 AND area = %s
                 AND area IS NOT NULL 
                 AND area != ''
+                AND COALESCE(LOWER(task_use_status), '') != 'to_be_picked_up'
                 ORDER BY RAND() 
                 LIMIT 1
             """
             pickup_area = self.warehouse_rules[warehouse_id]['pickup_area']
             cursor.execute(query, (self.scene_id, pickup_area))
             result = cursor.fetchone()
+            if not result:
+                logging.warning(
+                    f"⚠️ {warehouse_id}仓库取货区域({pickup_area})暂无可用库位，"
+                    "已排除 task_use_status = to_be_picked_up 的记录"
+                )
             return result
         except mysql.connector.Error as e:
             logging.error(f"查询{warehouse_id}仓库取货库位失败: {e}")
@@ -292,7 +382,12 @@ class WarehouseTaskDispatcher:
         logging.info(f"📤 PUT请求参数: {json.dumps(payload, ensure_ascii=False)}")
         
         try:
-            response = requests.put(self.api_url, json=payload, timeout=10)
+            response = requests.put(
+                self.api_url,
+                json=payload,
+                headers=self.release_headers,
+                timeout=10,
+            )
             logging.info(f"📥 响应状态码: {response.status_code}")
             
             if response.status_code == 200:
@@ -327,8 +422,17 @@ class WarehouseTaskDispatcher:
         logging.info(f"🔁 释放库位请求URL: {self.release_location_url}")
         logging.info(f"🔁 释放库位参数: {json.dumps(payload, ensure_ascii=False)}")
 
+        if not self.release_headers.get("Authorization"):
+            logging.error("❌ 缺少 Bearer Token，无法调用释放库位接口")
+            return False
+
         try:
-            response = requests.delete(self.release_location_url, json=payload, timeout=10)
+            response = requests.delete(
+                self.release_location_url,
+                json=payload,
+                headers=self.release_headers,
+                timeout=10,
+            )
             logging.info(f"🔁 释放库位响应状态码: {response.status_code}")
             if response.status_code == 200:
                 return True
@@ -410,14 +514,17 @@ class WarehouseTaskDispatcher:
                     FROM pallet_pos 
                     WHERE scene_id = %s 
                     AND area = %s
+                    AND COALESCE(LOWER(task_use_status), '') != 'to_be_picked_up'
                 """
                 cursor.execute(query, (self.scene_id, pickup_area))
                 result = cursor.fetchone()
                 count = result['count'] if result else 0
-                logging.info(f"  {warehouse_id}仓库取货区域({pickup_area})库位数量: {count}")
+                logging.info(f"  {warehouse_id}仓库取货区域({pickup_area})可用库位数量: {count}")
                 
                 if count == 0:
-                    logging.warning(f"⚠️ {warehouse_id}仓库取货区域({pickup_area})没有库位数据!")
+                    logging.warning(
+                        f"⚠️ {warehouse_id}仓库取货区域({pickup_area})没有可用库位数据!"
+                    )
             
             # 测试接口连接
             logging.info("🔍 测试接口连接...")
@@ -428,7 +535,12 @@ class WarehouseTaskDispatcher:
             }
             
             try:
-                response = requests.put(self.api_url, json=test_payload, timeout=5)
+                response = requests.put(
+                    self.api_url,
+                    json=test_payload,
+                    headers=self.release_headers,
+                    timeout=5,
+                )
                 logging.info(f"📥 接口测试响应状态码: {response.status_code}")
                 
                 if response.status_code == 200:
@@ -463,7 +575,7 @@ class WarehouseTaskDispatcher:
         # 测试连接
         if not self.test_connection():
             logging.error("❌ 连接测试失败，退出程序")
-            return
+            return False
 
         if self.release_locations:
             self.release_location_status()
@@ -554,6 +666,7 @@ class WarehouseTaskDispatcher:
             STOP_EVENT.wait(30)
 
         logging.info("🛑 已停止任务调度器")
+        return True
 
 def main():
     """主函数，支持命令行参数"""
@@ -590,8 +703,14 @@ def main():
             logging.info(f"使用自定义权重: {weights}")
         except Exception as e:
             logging.error(f"权重参数解析失败: {e}")
-            return
-    
+            return False
+
+    # 程序启动时先执行登录脚本，成功后继续；失败则直接停止
+    bearer_token = _run_startup_login(DEFAULT_CONFIG_PATH)
+    if not bearer_token:
+        logging.error("调用失败")
+        return False
+
     # 创建调度器并运行
     release_locations = True if not args.release_locations else True
 
@@ -602,8 +721,9 @@ def main():
         release_locations=release_locations,
         release_is_all=args.release_all,
         release_interval_seconds=args.release_interval,
+        bearer_token=bearer_token,
     )
-    dispatcher.run()
+    return dispatcher.run()
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(0 if main() else 1)
