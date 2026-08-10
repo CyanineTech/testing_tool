@@ -35,7 +35,7 @@ def _print_missing_dependency_help(missing_module: str) -> None:
 
 
 try:
-    from flask import Flask, render_template, request, jsonify, send_file, Response
+    from flask import Flask, render_template, request, jsonify, send_file, Response, stream_with_context
 except ModuleNotFoundError as e:
     _print_missing_dependency_help(getattr(e, "name", "flask"))
     raise
@@ -70,6 +70,7 @@ process_lock = threading.Lock()
 MAX_OUTPUT_BUFFER_LINES = 2000
 MAX_OUTPUT_QUEUE_LINES = 2000
 PROCESS_RETENTION_SECONDS = 10 * 60
+MAX_RUNNING_PROCESSES = 8
 
 # 脚本描述数据
 script_descriptions = {}
@@ -409,6 +410,25 @@ def execute_script(script_name):
     
     # 生成唯一的进程ID
     cleanup_finished_processes()
+    with process_lock:
+        active_for_script = sum(
+            1 for info in running_processes.values()
+            if info.get('script_name') == script_name and info['process'].poll() is None
+        )
+        active_total = sum(
+            1 for info in running_processes.values()
+            if info['process'].poll() is None
+        )
+    if active_for_script >= 1:
+        return jsonify({
+            "status": "error",
+            "message": f"脚本正在运行中，请先停止现有进程: {script_name}"
+        }), 409
+    if active_total >= MAX_RUNNING_PROCESSES:
+        return jsonify({
+            "status": "error",
+            "message": f"运行中的脚本已达到上限({MAX_RUNNING_PROCESSES})，请先停止不需要的进程"
+        }), 429
     process_id = f"{script_name}_{uuid.uuid4().hex}"
     
     try:
@@ -424,7 +444,8 @@ def execute_script(script_name):
             text=True,
             bufsize=1,
             universal_newlines=True,
-            cwd=str(SCRIPTS_DIR)
+            cwd=str(SCRIPTS_DIR),
+            start_new_session=True,
         )
         
         # 保存进程信息
@@ -434,7 +455,8 @@ def execute_script(script_name):
                 'script_name': script_name,
                 'start_time': datetime.now(),
                 'output_queue': queue.Queue(maxsize=MAX_OUTPUT_QUEUE_LINES),
-                'output_buffer': deque(maxlen=MAX_OUTPUT_BUFFER_LINES)
+                'output_buffer': deque(maxlen=MAX_OUTPUT_BUFFER_LINES),
+                'stream_generation': 0
             }
         
         # 启动线程读取输出
@@ -496,15 +518,28 @@ def execute_script(script_name):
 @app.route('/api/process/<process_id>/output')
 def get_process_output(process_id):
     """获取进程输出（流式）"""
+    with process_lock:
+        process_info = running_processes.get(process_id)
+        if process_info is not None:
+            process_info['stream_generation'] = process_info.get('stream_generation', 0) + 1
+            stream_generation = process_info['stream_generation']
+            output_queue = process_info['output_queue']
+        else:
+            stream_generation = None
+            output_queue = None
+
+    @stream_with_context
     def generate():
         cleanup_finished_processes()
-        if process_id not in running_processes:
+        if output_queue is None:
             yield f"data: {json.dumps({'type': 'error', 'message': '进程不存在'})}\n\n"
             return
-        
-        output_queue = running_processes[process_id]['output_queue']
-        
+
         while True:
+            with process_lock:
+                current = running_processes.get(process_id)
+                if current is None or current.get('stream_generation') != stream_generation:
+                    return
             try:
                 line = output_queue.get(timeout=1)
                 if line is None:
@@ -516,7 +551,10 @@ def get_process_output(process_id):
                 # 发送心跳
                 yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
     
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
 
 
 @app.route('/api/process/<process_id>/recent')
@@ -564,11 +602,13 @@ def stop_process(process_id):
     try:
         # Do not hold process_lock while waiting: the output reader needs it
         # to finish and mark the process as completed.
-        process.terminate()
+        if process.poll() is None:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            process.kill()
+            if process.poll() is None:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
             process.wait()
 
         with process_lock:
@@ -630,22 +670,31 @@ def get_log_content(log_name):
         return jsonify({"status": "error", "message": "日志文件不存在"}), 404
     
     try:
-        # 读取最后1000行 (对于大文件更高效的方式)
+        # 只从文件尾部读取，避免每次打开日志都完整扫描数百MB文件。
         max_lines = 1000
-        lines = []
-        total_lines = 0
-        
-        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-            tail = deque(maxlen=max_lines)
-            for line in f:
-                tail.append(line)
-                total_lines += 1
-            last_lines = list(tail)
+        chunk_size = 64 * 1024
+        chunks = []
+        newline_count = 0
+        with open(log_path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            position = f.tell()
+            while position > 0 and newline_count <= max_lines:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                f.seek(position)
+                chunk = f.read(read_size)
+                chunks.append(chunk)
+                newline_count += chunk.count(b'\n')
+        raw_tail = b''.join(reversed(chunks))
+        last_lines = raw_tail.decode('utf-8', errors='ignore').splitlines(keepends=True)[-max_lines:]
+        shown_lines = len(last_lines)
+        truncated = position > 0
         
         return jsonify({
             "content": ''.join(last_lines),
-            "total_lines": total_lines,
-            "shown_lines": len(last_lines)
+            "total_lines": None,
+            "shown_lines": shown_lines,
+            "truncated": truncated
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -671,11 +720,13 @@ def cleanup_processes():
         processes = [info['process'] for info in running_processes.values()]
     for process in processes:
         try:
-            process.terminate()
+            if process.poll() is None:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             process.wait(timeout=3)
         except Exception:
             try:
-                process.kill()
+                if process.poll() is None:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
             except Exception:
                 pass
 

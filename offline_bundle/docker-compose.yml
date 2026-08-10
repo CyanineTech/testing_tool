@@ -25,3 +25,8 @@ services:
       - ./runtime/script_descriptions.json:/app/runtime/script_descriptions.json
       - ./runtime/logs:/app/runtime/logs
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"

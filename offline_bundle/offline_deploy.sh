@@ -34,6 +34,10 @@ compose_cmd() {
 }
 
 mkdir -p service scripts runtime runtime/logs
+
+# 清理超过 30 天的轮转日志，避免历史备份长期占用磁盘。
+find runtime/logs scripts -type f -name '*.log.*' -mtime +30 -print -delete 2>/dev/null || true
+
 if [[ -f runtime/config.ini.example && ! -f runtime/config.ini ]]; then
   cp runtime/config.ini.example runtime/config.ini
   echo "[INFO] Created runtime/config.ini from template. Edit it before running task scripts."

@@ -1393,7 +1393,9 @@
                 const display = document.getElementById('log-content-display');
                 display.innerHTML = result.content || '日志为空';
                 
-                if (result.total_lines > result.shown_lines) {
+                if (result.truncated) {
+                    display.innerHTML = `显示最近 ${result.shown_lines} 行\n\n` + display.innerHTML;
+                } else if (result.total_lines > result.shown_lines) {
                     display.innerHTML = `显示最后 ${result.shown_lines} / ${result.total_lines} 行\n\n` + display.innerHTML;
                 }
             } catch (error) {
