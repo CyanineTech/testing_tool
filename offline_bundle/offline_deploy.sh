@@ -33,7 +33,7 @@ compose_cmd() {
   fi
 }
 
-mkdir -p service scripts runtime runtime/logs
+mkdir -p scripts runtime runtime/logs
 
 # 清理超过 30 天的轮转日志，避免历史备份长期占用磁盘。
 find runtime/logs scripts -type f -name '*.log.*' -mtime +30 -print -delete 2>/dev/null || true
@@ -49,13 +49,20 @@ if [[ ! -e scripts/config.ini ]]; then
   ln -s ../runtime/config.ini scripts/config.ini
 fi
 
-if [[ ! -f service/web_service.py ]]; then
-  echo "[ERROR] service/web_service.py not found. Please verify offline bundle is complete."
+if [[ ! -f tools/script-runner/app/main.py || ! -f tools/camera-sim/app/main.py ]]; then
+  echo "[ERROR] New tool service sources are incomplete."
   exit 1
 fi
 
 if [[ ! -f .env ]]; then
-  echo "APP_IMAGE=testing-tool-web:latest" > .env
+  cp .env.example .env
+  echo "[ERROR] Created .env from .env.example. Set PLATFORM_PASSWORD before deploying."
+  exit 1
+fi
+
+if grep -q '^PLATFORM_AUTH_ENABLED=1$' .env && grep -q '^PLATFORM_PASSWORD=replace-with-a-strong-password$' .env; then
+  echo "[ERROR] Replace the default PLATFORM_PASSWORD in .env before deploying."
+  exit 1
 fi
 
 if [[ "${USE_OFFLINE_IMAGE:-0}" == "1" ]]; then
@@ -78,5 +85,5 @@ echo "[3/4] Service status"
 compose_cmd -f docker-compose.yml ps
 
 echo "[4/4] Done"
-echo "Mode: mounted layout (service/scripts/runtime)"
+echo "Mode: gateway + tool services (scripts/runtime)"
 echo "Open in browser: http://<target-ip>:5000"

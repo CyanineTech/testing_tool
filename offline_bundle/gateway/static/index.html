@@ -91,9 +91,12 @@
         .script-card {
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            padding: 20px;
+            padding: 18px;
             transition: all 0.3s;
-            background: #fafafa;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
         }
         
         .script-card:hover {
@@ -103,26 +106,77 @@
         
         .script-card h3 {
             color: #333;
-            margin-bottom: 10px;
-            font-size: 1.3em;
+            margin: 0 0 12px;
+            font-size: 1.12em;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
         }
         
         .script-card .description {
             color: #666;
-            margin-bottom: 15px;
+            margin-bottom: 14px;
             line-height: 1.6;
-            min-height: 60px;
+            overflow-wrap: anywhere;
         }
-        
-        .script-card .workflow {
-            background: #fff;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
-            min-height: 80px;
-            font-family: monospace;
-            font-size: 0.9em;
+
+        .script-details {
+            display: grid;
+            gap: 9px;
+            margin-bottom: 16px;
+        }
+
+        .script-detail-section {
+            padding: 10px 12px;
+            border-left: 3px solid #c7d2fe;
+            background: #f8fafc;
+            border-radius: 4px;
+            min-width: 0;
+        }
+
+        .script-detail-section h4 {
+            margin: 0 0 5px;
+            color: #374151;
+            font-size: 0.84em;
+            font-weight: 700;
+        }
+
+        .script-detail-section p {
+            margin: 0;
+            color: #4b5563;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .script-detail-section.command {
+            border-left-color: #93c5fd;
+        }
+
+        .script-detail-section.example {
+            border-left-color: #86efac;
+        }
+
+        .script-detail-section.note {
+            border-left-color: #fcd34d;
+        }
+
+        .script-detail-section code {
+            display: block;
+            padding: 6px 8px;
+            margin-top: 2px;
+            background: #111827;
+            color: #e5e7eb;
+            border-radius: 4px;
+            font: 0.9em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .script-card-actions {
+            margin-top: auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
         }
         
         .btn {
@@ -134,6 +188,13 @@
             font-size: 14px;
             transition: all 0.3s;
             font-weight: 500;
+        }
+
+        #execute-workflow {
+            color: #374151;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
         }
         
         .btn-primary {
@@ -508,6 +569,7 @@
             <button class="tab" onclick="showTab('config', event)">⚙️ 配置管理</button>
             <button class="tab" onclick="showTab('execute', event)">▶️ 执行脚本</button>
             <button class="tab" onclick="showTab('logs', event)">📋 日志查看</button>
+            <button class="tab" onclick="showTab('cctv', event)">📹 Camera Mock</button>
         </div>
         
         <!-- 脚本管理标签页 -->
@@ -590,6 +652,10 @@
                 </div>
             </div>
         </div>
+                <!-- CCTV Mock 标签页 -->
+        <div id="cctv-tab" class="tab-content">
+            <iframe id="cctv-iframe" src="/api/v1/camera/list-mock" style="width:100%;height:85vh;border:none;border-radius:8px;"></iframe>
+        </div>
     </div>
     
     <!-- 编辑脚本模态框 -->
@@ -634,6 +700,8 @@
         let scriptsRefreshInFlight = false;
         let lastScriptsRefreshAt = 0;
         const scriptsAutoRefreshMinIntervalMs = 1500;
+        const MAX_TERMINAL_CHARS = 1024 * 1024;
+        let terminalOutputChars = 0;
         
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -691,7 +759,7 @@
         }
 
         async function fetchRunningProcesses() {
-            const response = await fetch('/api/processes');
+                const response = await fetch('/api/v1/scripts/processes');
             const all = await response.json();
             const running = Array.isArray(all) ? all.filter(item => item.running) : [];
             return sortedRunningProcesses(running);
@@ -799,8 +867,8 @@
 
             if (terminal) {
                 terminal.style.display = 'block';
-                if (!terminal.innerHTML.trim()) {
-                    terminal.innerHTML = '已恢复到正在运行的进程，正在持续接收输出...\n';
+                if (!terminal.textContent.trim()) {
+                    appendTerminalOutput('已恢复到正在运行的进程，正在持续接收输出...\n');
                 }
             }
 
@@ -821,8 +889,7 @@
             }
             if (message && terminal) {
                 terminal.style.display = 'block';
-                terminal.innerHTML += `${message}\n`;
-                terminal.scrollTop = terminal.scrollHeight;
+                appendTerminalOutput(`${message}\n`, true);
             }
 
             currentProcessId = null;
@@ -899,18 +966,18 @@
             setStoredProcessId(processId);
 
             try {
-                const recentResp = await fetch(`/api/process/${processId}/recent?lines=300`);
+                const recentResp = await fetch(`/api/v1/scripts/process/${processId}/recent?lines=300`);
                 if (recentResp.ok) {
                     const recent = await recentResp.json();
                     const history = recent.content || '';
-                    terminal.innerHTML = history
+                    setTerminalOutput(history
                         ? `${history}\n--- 已切换到实时输出 ---\n`
-                        : `进程 ${processId} 暂无历史输出，等待实时日志...\n`;
+                        : `进程 ${processId} 暂无历史输出，等待实时日志...\n`);
                 } else {
-                    terminal.innerHTML += '未能获取历史输出，将直接接收实时日志...\n';
+                    appendTerminalOutput('未能获取历史输出，将直接接收实时日志...\n');
                 }
             } catch (e) {
-                terminal.innerHTML += '历史输出加载失败，将直接接收实时日志...\n';
+                appendTerminalOutput('历史输出加载失败，将直接接收实时日志...\n');
             }
 
             setRunningUiState(target);
@@ -971,7 +1038,7 @@
 
             setScriptsRefreshStatus('刷新中...');
             try {
-                const resp = await fetch('/api/scripts/refresh', { method: 'POST' });
+                const resp = await fetch('/api/v1/scripts/refresh', { method: 'POST' });
                 const result = await resp.json();
 
                 if (result.status === 'success') {
@@ -1006,7 +1073,7 @@
         // 加载脚本列表
         async function loadScripts() {
             try {
-                const response = await fetch('/api/scripts');
+                const response = await fetch('/api/v1/scripts');
                 scripts = await response.json();
                 displayScripts();
                 updateExecuteScriptSelect();
@@ -1026,12 +1093,65 @@
                 card.innerHTML = `
                     <h3>📄 ${script.name}</h3>
                     <div class="description">${script.description || '暂无描述'}</div>
-                    <div class="workflow">${script.workflow || '暂无工作流程说明'}</div>
-                    <button class="btn btn-primary" onclick="editScript('${name}')">✏️ 编辑</button>
-                    <button class="btn btn-secondary" onclick="downloadScript('${name}')">⬇️ 下载</button>
+                    <div class="script-details">${formatScriptWorkflow(script.workflow)}</div>
+                    <div class="script-card-actions">
+                        <button class="btn btn-primary" onclick="editScript('${name}')">✏️ 编辑</button>
+                        <button class="btn btn-secondary" onclick="downloadScript('${name}')">⬇️ 下载</button>
+                    </div>
                 `;
                 container.appendChild(card);
             }
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function formatScriptWorkflow(workflow) {
+            const sections = [
+                { prefix: '需要修改的配置：', title: '需要修改的配置', className: 'config' },
+                { prefix: '可传参数：', title: '可传参数', className: 'command' },
+                { prefix: '示例：', title: '使用示例', className: 'example' },
+                { prefix: '注意：', title: '注意事项', className: 'note' },
+                { prefix: '前置条件：', title: '前置条件', className: 'note' }
+            ];
+            const text = String(workflow || '').trim();
+            if (!text) {
+                return '<div class="script-detail-section"><p>暂无参数说明</p></div>';
+            }
+
+            const lines = text.split('\n');
+            const result = [];
+            let current = null;
+            const flush = () => {
+                if (!current || !current.content.trim()) return;
+                const body = escapeHtml(current.content.trim());
+                const bodyHtml = current.className === 'example'
+                    ? `<code>${body}</code>`
+                    : `<p>${body}</p>`;
+                result.push(`<section class="script-detail-section ${current.className}">
+                    <h4>${current.title}</h4>${bodyHtml}
+                </section>`);
+            };
+
+            lines.forEach(line => {
+                const section = sections.find(item => line.startsWith(item.prefix));
+                if (section) {
+                    flush();
+                    current = { ...section, content: line.slice(section.prefix.length).trim() };
+                } else if (current) {
+                    current.content += `\n${line}`;
+                } else {
+                    current = { title: '说明', className: 'config', content: line };
+                }
+            });
+            flush();
+            return result.join('');
         }
         
         // 更新执行脚本下拉框
@@ -1049,17 +1169,17 @@
 
             if (previous && scripts[previous]) {
                 select.value = previous;
-                document.getElementById('execute-workflow').textContent =
-                    scripts[previous].workflow || '暂无工作流程说明';
+                document.getElementById('execute-workflow').innerHTML =
+                    formatScriptWorkflow(scripts[previous].workflow);
             }
             
             select.onchange = function() {
                 const scriptName = this.value;
                 if (scriptName && scripts[scriptName]) {
-                    document.getElementById('execute-workflow').textContent = 
-                        scripts[scriptName].workflow || '暂无工作流程说明';
+                    document.getElementById('execute-workflow').innerHTML =
+                        formatScriptWorkflow(scripts[scriptName].workflow);
                 } else {
-                    document.getElementById('execute-workflow').textContent = '';
+                    document.getElementById('execute-workflow').innerHTML = '';
                 }
             };
         }
@@ -1087,7 +1207,7 @@
             const workflow = document.getElementById('edit-workflow').value;
             
             try {
-                const response = await fetch(`/api/scripts/${scriptName}`, {
+                const response = await fetch(`/api/v1/scripts/${scriptName}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({description, workflow})
@@ -1114,13 +1234,13 @@
         
         // 下载脚本
         function downloadScript(scriptName) {
-            window.location.href = `/api/download/${scriptName}`;
+            window.location.href = `/api/v1/scripts/download/${scriptName}`;
         }
         
         // 加载配置
         async function loadConfig() {
             try {
-                const response = await fetch('/api/config');
+                const response = await fetch('/api/v1/scripts/config');
                 config = await response.json();
                 displayConfig();
             } catch (error) {
@@ -1171,7 +1291,7 @@
             });
             
             try {
-                const response = await fetch('/api/config', {
+                const response = await fetch('/api/v1/scripts/config', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(newConfig)
@@ -1207,7 +1327,7 @@
             terminal.style.display = 'block';
             
             try {
-                const response = await fetch(`/api/execute/${scriptName}`, {
+                const response = await fetch(`/api/v1/scripts/execute/${scriptName}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({args})
@@ -1236,13 +1356,45 @@
                     // 开始接收输出
                     connectToProcessOutput(currentProcessId);
                 } else {
-                    terminal.innerHTML += '❌ 启动失败: ' + result.message + '\n';
+                    appendTerminalOutput('❌ 启动失败: ' + result.message + '\n', true);
                 }
             } catch (error) {
-                terminal.innerHTML += '❌ 执行失败: ' + error.message + '\n';
+                appendTerminalOutput('❌ 执行失败: ' + error.message + '\n', true);
             }
         }
         
+        function setTerminalOutput(content) {
+            const terminal = document.getElementById('terminal-output');
+            if (!terminal) return;
+            const text = String(content || '');
+            const trimmed = text.length > MAX_TERMINAL_CHARS
+                ? text.slice(-MAX_TERMINAL_CHARS)
+                : text;
+            terminal.textContent = trimmed;
+            terminalOutputChars = trimmed.length;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function appendTerminalOutput(content, forceScroll = false) {
+            const terminal = document.getElementById('terminal-output');
+            if (!terminal) return;
+            const text = String(content || '');
+            const shouldScroll = forceScroll || terminalIsNearBottom(terminal);
+            terminal.appendChild(document.createTextNode(text));
+            terminalOutputChars += text.length;
+
+            // Keep the browser DOM bounded during multi-hour script runs.
+            if (terminalOutputChars > MAX_TERMINAL_CHARS) {
+                const trimmed = terminal.textContent.slice(-MAX_TERMINAL_CHARS);
+                terminal.textContent = trimmed;
+                terminalOutputChars = trimmed.length;
+            }
+
+            if (shouldScroll) {
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        }
+
         function terminalIsNearBottom(terminal, threshold = 24) {
             return terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight <= threshold;
         }
@@ -1253,30 +1405,26 @@
                 eventSource.close();
             }
             
-            eventSource = new EventSource(`/api/process/${processId}/output`);
+            eventSource = new EventSource(`/api/v1/scripts/process/${processId}/output`);
             const terminal = document.getElementById('terminal-output');
             terminal.style.display = 'block';
 
             if (isRecovered) {
-                terminal.innerHTML += `🔄 已重新连接到进程 ${processId}\n`;
+                appendTerminalOutput(`🔄 已重新连接到进程 ${processId}\n`);
             }
             
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 
                 if (data.type === 'output') {
-                    const shouldAutoScroll = terminalIsNearBottom(terminal);
-                    terminal.innerHTML += data.data;
-                    if (shouldAutoScroll) {
-                        terminal.scrollTop = terminal.scrollHeight;
-                    }
+                    appendTerminalOutput(data.data);
                 } else if (data.type === 'end') {
-                    terminal.innerHTML += '\n✅ 进程已结束\n';
+                    appendTerminalOutput('\n✅ 进程已结束\n', true);
                     eventSource.close();
                     runningProcesses = runningProcesses.filter(item => item.process_id !== processId);
                     clearRunningUiState();
                 } else if (data.type === 'error') {
-                    terminal.innerHTML += '\n❌ 错误: ' + data.message + '\n';
+                    appendTerminalOutput('\n❌ 错误: ' + data.message + '\n', true);
                     eventSource.close();
                     runningProcesses = runningProcesses.filter(item => item.process_id !== processId);
                     clearRunningUiState();
@@ -1284,7 +1432,7 @@
             };
             
             eventSource.onerror = function() {
-                terminal.innerHTML += '\n⚠️ 连接中断\n';
+                appendTerminalOutput('\n⚠️ 连接中断\n', true);
                 eventSource.close();
                 // 网络闪断时保留 currentProcessId，允许用户继续点击“停止执行”
             };
@@ -1309,7 +1457,7 @@
             }
             
             try {
-                const response = await fetch(`/api/process/${processId}/stop`, {
+                const response = await fetch(`/api/v1/scripts/process/${processId}/stop`, {
                     method: 'POST'
                 });
                 
@@ -1317,9 +1465,9 @@
                 const terminal = document.getElementById('terminal-output');
                 
                 if (result.status === 'success') {
-                    terminal.innerHTML += `\n⏹️ 已停止进程 ${processId}\n`;
+                    appendTerminalOutput(`\n⏹️ 已停止进程 ${processId}\n`, true);
                 } else {
-                    terminal.innerHTML += `\n❌ 停止失败(${processId}): ${result.message}\n`;
+                    appendTerminalOutput(`\n❌ 停止失败(${processId}): ${result.message}\n`, true);
                 }
                 
                 if (eventSource && currentProcessId === processId) {
@@ -1336,14 +1484,14 @@
                 refreshRunningProcessesPanel(false);
             } catch (error) {
                 const terminal = document.getElementById('terminal-output');
-                terminal.innerHTML += '\n❌ 停止失败: ' + error.message + '\n';
+                appendTerminalOutput('\n❌ 停止失败: ' + error.message + '\n', true);
             }
         }
         
         // 加载日志列表
         async function loadLogs() {
             try {
-                const response = await fetch('/api/logs');
+                const response = await fetch('/api/v1/scripts/logs');
                 const logs = await response.json();
                 displayLogs(logs);
             } catch (error) {
@@ -1387,7 +1535,7 @@
             }
             
             try {
-                const response = await fetch(`/api/logs/${logName}`);
+                const response = await fetch(`/api/v1/scripts/logs/${logName}`);
                 const result = await response.json();
                 
                 const display = document.getElementById('log-content-display');

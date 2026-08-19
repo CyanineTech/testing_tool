@@ -1,2 +1,20 @@
+# Secrets and local configuration
+.env
+**/.env
+offline_bundle/runtime/config.ini
+offline_bundle/scripts/config.ini
+offline_bundle/runtime/*.json
+
+# Runtime files
+*.log
 *.log.*
+*.py[cod]
+__pycache__/
+.pytest_cache/
+.venv/
+*.xlsx
+
+# Build and local artifacts
 *.tar
+*.tar.gz
+.DS_Store

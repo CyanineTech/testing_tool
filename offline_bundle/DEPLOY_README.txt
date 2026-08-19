@@ -1,18 +1,16 @@
-Deploy steps on target machine:
-1) Ensure Docker and Docker Compose are installed.
-2) Clone the repository and enter this folder.
-3) Run: chmod +x offline_deploy.sh && ./offline_deploy.sh
-4) Edit runtime/config.ini with the target service account and host.
-5) Open: http://<target-ip>:5000
+Testing Tool Platform deployment
 
-The default mode builds the image from the Dockerfile. For an air-gapped
-machine that has image.tar, run: USE_OFFLINE_IMAGE=1 ./offline_deploy.sh
+1. Install Docker and Docker Compose.
+2. Copy this directory to the target machine.
+3. Set PLATFORM_USER and PLATFORM_PASSWORD in .env.
+4. Set the target service values in runtime/config.ini.
+5. Run ./offline_deploy.sh.
+6. Open http://<target-ip>:5000 and authenticate with the .env credentials.
 
-Mounted directory layout:
-- ./service  -> /app/service (web service code)
-- ./scripts  -> /app/scripts (task scripts)
-- ./runtime  -> /app/runtime (config, script_descriptions, logs)
+The deployment starts three services:
+- gateway: Nginx, host port 5000
+- tool-script-runner: internal port 8000
+- tool-camera-sim: internal port 8002
 
-After deployment:
-- Replace task scripts directly in ./scripts (target machine) to hot update task logic.
-- If you modify files under ./service, restart container to apply service code changes.
+Business services are not published to host ports. Logs and camera state are stored in named volumes.
+Use docker compose up -d --build after changing service code, gateway configuration, or frontend files.

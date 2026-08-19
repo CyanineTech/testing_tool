@@ -1,15 +1,9 @@
 {
-  "leefung-s1-random-task-dispatcher.py": {
-    "name": "leefung-s1-random-task-dispatcher.py",
-    "description": "Python脚本: leefung-s1-random-task-dispatcher.py",
+  "Download.py": {
+    "name": "Download.py",
+    "description": "解析日期时间字符串，支持多种格式\n    格式: YYYY_MM_DD-HH_MM_SS",
     "workflow": "",
-    "path": "/app/scripts/leefung-s1-random-task-dispatcher.py"
-  },
-  "login.py": {
-    "name": "login.py",
-    "description": "递归查找可能的 token 字段或 JWT 字符串\"\"\"\n    placeholders = {\"\", \"null\", \"none\"}\n    if isinstance(obj, dict):\n        # 优先查找常见字段名\n        for key in (\"token\", \"access_token\", \"jwt\", \"auth_token\"):\n            if key in obj and isinstance(obj[key], str) and obj[key].strip().lower() not in placeholders:\n                return obj[key].strip()\n        for v in obj.values():\n            t = find_token(v)\n            if t:\n                return t\n    elif isinstance(obj, list):\n        for item in obj:\n            t = find_token(item)\n            if t:\n                return t\n    elif isinstance(obj, str):\n        s = obj.strip()\n        if not s:\n            return None\n        # 常见 JWT 开头\n        if s.startswith(\"eyJ\") and len(s) > 20:\n            return s\n        # 若字符串看起来像 token（不仅是占位词）\n        if s.lower() not in placeholders:\n            return s\n    return None\n\n\ndef load_config(path: str) -> Tuple[ConfigParser, List[str]]:",
-    "workflow": "",
-    "path": "/app/scripts/login.py"
+    "path": "/app/scripts/Download.py"
   },
   "get_Location_info.py": {
     "name": "get_Location_info.py",
@@ -17,11 +11,23 @@
     "workflow": "",
     "path": "/app/scripts/get_Location_info.py"
   },
-  "lift_cargo_to_zone.py": {
-    "name": "lift_cargo_to_zone.py",
-    "description": "任务统计结果数据类（简化，仅用于内存统计）",
+  "auto_start_location_call_task.py": {
+    "name": "auto_start_location_call_task.py",
+    "description": "Python脚本: auto_start_location_call_task.py",
     "workflow": "",
-    "path": "/app/scripts/lift_cargo_to_zone.py"
+    "path": "/app/scripts/auto_start_location_call_task.py"
+  },
+  "leefung-s1-random-task-dispatcher.py": {
+    "name": "leefung-s1-random-task-dispatcher.py",
+    "description": "Python脚本: leefung-s1-random-task-dispatcher.py",
+    "workflow": "",
+    "path": "/app/scripts/leefung-s1-random-task-dispatcher.py"
+  },
+  "region_pickup_to_lift_task.py": {
+    "name": "region_pickup_to_lift_task.py",
+    "description": "任务配置数据类（完全从config.ini读取）\"\"\"\n    # [base] 节\n    account: str\n    password: str\n    token: str\n    \n    # [service] 节",
+    "workflow": "",
+    "path": "/app/scripts/region_pickup_to_lift_task.py"
   },
   "get_area.py": {
     "name": "get_area.py",
@@ -29,29 +35,11 @@
     "workflow": "",
     "path": "/app/scripts/get_area.py"
   },
-  "Download.py": {
-    "name": "Download.py",
-    "description": "解析日期时间字符串，支持多种格式\n    格式: YYYY_MM_DD-HH_MM_SS",
+  "lift_cargo_to_zone.py": {
+    "name": "lift_cargo_to_zone.py",
+    "description": "任务统计结果数据类（简化，仅用于内存统计）",
     "workflow": "",
-    "path": "/app/scripts/Download.py"
-  },
-  "region_pickup_to_lift_task.py": {
-    "name": "region_pickup_to_lift_task.py",
-    "description": "任务配置数据类（完全从config.ini读取）\"\"\"\n    # [base] 节\n    account: str\n    password: str\n    token: str\n    \n    # [service] 节\n    host: str",
-    "workflow": "",
-    "path": "/app/scripts/region_pickup_to_lift_task.py"
-  },
-  "GFS_Random_task.py": {
-    "name": "GFS_Random_task.py",
-    "description": "收到停止信号后设置退出标志，让主循环尽快结束。\"\"\"\n    try:\n        logging.info(f\"🛑 收到停止信号({sig})，准备退出...\")\n    except Exception:\n        pass\n    STOP_EVENT.set()\n\n# 配置日志\nlogging.basicConfig(\n    level=logging.INFO,\n    format='%(asctime)s - %(levelname)s - %(message)s',\n    handlers=[\n        logging.FileHandler('warehouse_task_dispatcher.log'),\n        logging.StreamHandler()\n    ]\n)\n\nclass WarehouseTaskDispatcher:\n    def __init__(self, weights=None, host: Optional[str] = None, scene_id: Optional[int] = None):\n        base_host = (host or 'ubuntu-180').strip()",
-    "workflow": "",
-    "path": "/app/scripts/GFS_Random_task.py"
-  },
-  "auto_start_location_call_task.py": {
-    "name": "auto_start_location_call_task.py",
-    "description": "按 config.ini 的 logic_mapping 规则读取 pick/drop/hz，自动循环调用 location_call 开始任务接口。",
-    "workflow": "1. 在 [logic_mapping] 中配置 rule_x 的 pick/drop/hz。\n2. 确保 [excel] xlsx_path 指向包含 id 与 alias_kept 的文件。\n3. 运行脚本后将按每条规则的 hz 定时发起任务。",
-    "path": "/app/scripts/auto_start_location_call_task.py"
+    "path": "/app/scripts/lift_cargo_to_zone.py"
   },
   "p2p_monitor.py": {
     "name": "p2p_monitor.py",
@@ -64,5 +52,17 @@
     "description": "Python脚本: analyze_traffic.py",
     "workflow": "",
     "path": "/app/scripts/analyze_traffic.py"
+  },
+  "login.py": {
+    "name": "login.py",
+    "description": "递归查找明确的 token 字段或 JWT 字符串。\"\"\"\n    placeholders = {\"\", \"null\", \"none\"}\n    if isinstance(obj, dict):\n        # 只接受明确的 token 字段；部分接口会直接把 token 放在 data 字符串中。\n        for key, value in obj.items():\n            if str(key).lower() in (\"token\", \"access_token\", \"jwt\", \"auth_token\", \"data\"):\n                if isinstance(value, str) and value.strip().lower() not in placeholders:\n                    return value.strip()\n        for value in obj.values():\n            if isinstance(value, (dict, list)):\n                t = find_token(value)\n                if t:\n                    return t\n    elif isinstance(obj, list):\n        for item in obj:\n            t = find_token(item)\n            if t:\n                return t\n    elif isinstance(obj, str):\n        s = obj.strip()\n        if s.startswith(\"eyJ\") and len(s) > 20:\n            return s\n    return None\n\n\ndef load_config(path: str) -> Tuple[ConfigParser, List[str]]:",
+    "workflow": "",
+    "path": "/app/scripts/login.py"
+  },
+  "GFS_Random_task.py": {
+    "name": "GFS_Random_task.py",
+    "description": "收到停止信号后设置退出标志，让主循环尽快结束。\"\"\"\n    try:\n        logging.info(f\"🛑 收到停止信号({sig})，准备退出...\")\n    except Exception:\n        pass\n    STOP_EVENT.set()\n\n\ndef _load_token_from_config(config_path: str) -> Optional[str]:",
+    "workflow": "",
+    "path": "/app/scripts/GFS_Random_task.py"
   }
 }

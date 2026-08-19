@@ -28,7 +28,7 @@ except ModuleNotFoundError as e:
     raise
 from typing import Dict, List, Optional, Set
 
-# 用于响应web_service.py的停止请求（SIGTERM）
+# 用于响应脚本执行器的停止请求（SIGTERM）
 STOP_EVENT = threading.Event()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGIN_SCRIPT_PATH = os.path.join(SCRIPT_DIR, "login.py")
@@ -670,7 +670,7 @@ class WarehouseTaskDispatcher:
 
 def main():
     """主函数，支持命令行参数"""
-    # 注册停止信号（web_service.py的terminate()在Linux下会发送SIGTERM）
+    # 注册停止信号（脚本执行器会发送 SIGTERM）
     signal.signal(signal.SIGTERM, _handle_stop_signal)
     signal.signal(signal.SIGINT, _handle_stop_signal)
 

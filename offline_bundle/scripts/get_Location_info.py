@@ -3,6 +3,8 @@ import sys
 import re
 import requests
 import argparse
+import json
+import traceback
 from urllib.parse import urlencode
 from openpyxl import Workbook, load_workbook
 from configparser import ConfigParser
@@ -156,25 +158,42 @@ def fetch_locations(host, port, token, scene_id):
     url = f"http://{host}:{port}/map_server/locations/"
     params = {'scene_id': scene_id}
     headers = {'Authorization': f'Bearer {token}'}
+    print(f"🌐 请求地址：http://{host}:{port}/map_server/locations/?scene_id={scene_id}", flush=True)
+    print(f"🔐 Token：***{token[-4:] if len(token) >= 4 else '****'}", flush=True)
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=15)
+        print(f"📥 响应状态码：HTTP {resp.status_code}", flush=True)
+        print(f"📦 响应大小：{len(resp.content)} bytes", flush=True)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            data = resp.json()
+        except ValueError as e:
+            print(f"❌ 响应不是有效JSON：{e}", file=sys.stderr, flush=True)
+            print(f"📄 原始响应：{resp.text[:1000]}", file=sys.stderr, flush=True)
+            sys.exit(1)
+        if isinstance(data, dict):
+            print(f"🧾 响应字段：{', '.join(str(k) for k in data.keys())}", flush=True)
+        elif isinstance(data, list):
+            print(f"🧾 响应类型：list，长度={len(data)}", flush=True)
+        else:
+            print(f"🧾 响应类型：{type(data).__name__}", flush=True)
+        return data
     except requests.exceptions.ConnectionError:
-        print(f"❌ 连接失败：主机 '{host}:{port}' 不可达或服务未启动", file=sys.stderr)
+        print(f"❌ 连接失败：主机 '{host}:{port}' 不可达或服务未启动", file=sys.stderr, flush=True)
         sys.exit(1)
     except requests.exceptions.Timeout:
-        print(f"❌ 请求超时：连接主机 '{host}:{port}' 超过15秒", file=sys.stderr)
+        print(f"❌ 请求超时：连接主机 '{host}:{port}' 超过15秒", file=sys.stderr, flush=True)
         sys.exit(1)
     except requests.exceptions.HTTPError as e:
         status_code = resp.status_code
         if status_code == 401:
-            print(f"❌ 认证失败：Token无效或已过期", file=sys.stderr)
+            print(f"❌ 认证失败：Token无效或已过期（HTTP {status_code}）", file=sys.stderr, flush=True)
         else:
-            print(f"❌ HTTP错误 {status_code}：{e}", file=sys.stderr)
+            print(f"❌ HTTP错误 {status_code}：{e}", file=sys.stderr, flush=True)
+        print(f"📄 服务端响应：{resp.text[:1000]}", file=sys.stderr, flush=True)
         sys.exit(1)
     except Exception as e:
-        print(f"❌ 获取数据失败：{str(e)}", file=sys.stderr)
+        print(f"❌ 获取数据失败：{str(e)}", file=sys.stderr, flush=True)
         sys.exit(1)
 
 
@@ -265,27 +284,35 @@ def write_locations_xlsx(path, items, host, scene_id):
         key=lambda x: split_alias_for_sort(x['alias_kept'])
     )
     
-    # 处理Excel文件：存在则打开，不存在则新建
-    if os.path.exists(path):
-        wb = load_workbook(path)
-        if sheet_name in wb.sheetnames:
-            del wb[sheet_name]  # 覆盖已有表格
-    else:
-        wb = Workbook()
-        if 'Sheet' in wb.sheetnames:
-            wb.remove(wb['Sheet'])  # 删除默认工作表
-    
-    # 新建表格并写入数据
-    ws = wb.create_sheet(title=sheet_name)
-    ws.cell(row=1, column=1, value='id')
-    ws.cell(row=1, column=2, value='alias_kept')
-    
-    for row_idx, data in enumerate(data_list_sorted, start=2):
-        ws.cell(row=row_idx, column=1, value=data['id'])
-        ws.cell(row=row_idx, column=2, value=data['alias_kept'])
-    
-    # 保存文件
-    wb.save(path)
+    print(f"📊 有效数据：{len(data_list)} 条，去重后：{len(data_list_unique)} 条，排序后：{len(data_list_sorted)} 条", flush=True)
+    print(f"📁 准备写入Excel：{path}", flush=True)
+    print(f"📑 目标工作表：{sheet_name}", flush=True)
+    try:
+        if os.path.exists(path):
+            print(f"📖 Excel已存在，文件大小：{os.path.getsize(path)} bytes", flush=True)
+            wb = load_workbook(path)
+            if sheet_name in wb.sheetnames:
+                del wb[sheet_name]
+        else:
+            os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+            wb = Workbook()
+            if 'Sheet' in wb.sheetnames:
+                wb.remove(wb['Sheet'])
+
+        ws = wb.create_sheet(title=sheet_name)
+        ws.cell(row=1, column=1, value='id')
+        ws.cell(row=1, column=2, value='alias_kept')
+        for row_idx, data in enumerate(data_list_sorted, start=2):
+            ws.cell(row=row_idx, column=1, value=data['id'])
+            ws.cell(row=row_idx, column=2, value=data['alias_kept'])
+        wb.save(path)
+        wb.close()
+    except Exception as e:
+        print(f"❌ Excel写入失败：{type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        print(f"🔎 输出路径：{path}", file=sys.stderr, flush=True)
+        print(f"🔎 输出目录可写：{os.access(os.path.dirname(path) or '.', os.W_OK)}", file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
+        raise
     print(f"📋 已写入表格：{sheet_name}（{len(data_list_sorted)} 条数据）")
     return len(data_list), len(data_list_sorted)
 
@@ -297,7 +324,7 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 使用说明：
-  1. 所有配置均从 config.ini 文件读取，无需命令行参数
+  1. 默认从 config.ini 文件读取配置，命令行参数可临时覆盖
   2. 请确保 config.ini 包含以下配置段：
      
 [base]
@@ -318,6 +345,11 @@ xlsx_path = Excel输出路径（如 ./locations.xlsx，必填）
      相同参数覆盖表格，不同参数新增表格（不删除原有表格）
         '''
     )
+    parser.add_argument('--host', help='临时覆盖 [service] host，例如 leefung-s1 或 100.95.67.19')
+    parser.add_argument(
+        '--scene-id', '--scene_id', dest='scene_id', type=int,
+        help='临时覆盖 [map] scene_id，例如 9'
+    )
     return parser.parse_args()
 
 
@@ -329,9 +361,15 @@ def main():
     # 加载配置文件（缺少配置会中文报错并退出）
     print("🔍 正在读取配置文件...")
     config = load_config(CONFIG_PATH)
-    host = config['host']
+    config_host = config['host']
+    host = args.host.strip() if args.host and args.host.strip() else config_host
+    if args.host:
+        print(f"🔁 命令行参数覆盖 host：{config_host} -> {host}", flush=True)
     port = config['port']
-    scene_id = config['scene_id']
+    config_scene_id = config['scene_id']
+    scene_id = args.scene_id if args.scene_id is not None else config_scene_id
+    if args.scene_id is not None:
+        print(f"🔁 命令行参数覆盖 scene_id：{config_scene_id} -> {scene_id}", flush=True)
     token = config['token']
     output_path = config['xlsx_path']
     
@@ -354,6 +392,18 @@ def main():
     try:
         print("🔄 正在获取Locations数据...")
         data = fetch_locations(host, port, token, scene_id)
+
+        # 接口可能返回HTTP 200，但业务层 success=false；此时不能继续按正常数据解析。
+        if isinstance(data, dict) and data.get('success') is False:
+            msg = data.get('msg') or {}
+            detail = msg.get('detail') if isinstance(msg, dict) else {}
+            detail = detail if isinstance(detail, dict) else {}
+            error_id = detail.get('error_id', '未知')
+            info = detail.get('info') or detail.get('detail') or '服务端未提供具体原因'
+            print(f"❌ Locations查询业务失败：error_id={error_id}", file=sys.stderr, flush=True)
+            print(f"📄 服务端原因：{info}", file=sys.stderr, flush=True)
+            print(f"📦 完整响应：{json.dumps(data, ensure_ascii=False)}", file=sys.stderr, flush=True)
+            sys.exit(1)
         
         # 解析数据结构
         if isinstance(data, dict) and 'results' in data and isinstance(data['results'], list):
@@ -361,9 +411,10 @@ def main():
         elif isinstance(data, list):
             items = data
         else:
-            items = next((v for v in data.values() if isinstance(v, list)), None)
+            items = next((v for v in data.values() if isinstance(v, list)), None) if isinstance(data, dict) else None
             if not items:
-                print("❌ 错误：服务端返回数据中未找到有效Locations列表", file=sys.stderr)
+                print("❌ 错误：服务端返回数据中未找到有效Locations列表", file=sys.stderr, flush=True)
+                print(f"📄 返回内容摘要：{json.dumps(data, ensure_ascii=False)[:2000]}", file=sys.stderr, flush=True)
                 sys.exit(1)
         
         print(f"📊 已获取 {len(items)} 条原始数据，正在处理（去重+数字排序）...")
@@ -389,7 +440,8 @@ def main():
         print(f"📋 操作结果：{'覆盖' if is_cover else '新增'}表格 {sheet_name}")
         print("=" * 60)
     except Exception as e:
-        print(f"❌ 任务执行失败：{str(e)}", file=sys.stderr)
+        print(f"❌ 任务执行失败：{type(e).__name__}: {str(e)}", file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
         sys.exit(1)
 
 

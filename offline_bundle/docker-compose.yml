@@ -1,32 +1,98 @@
 services:
-  testing-tool-web:
-    image: ${APP_IMAGE:-testing-tool-web:offline-latest}
+  # ============================================================
+  # Nginx 网关 — 统一入口，端口 5000
+  # ============================================================
+  gateway:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: testing_tool_web
-    working_dir: /app/service
-    command: ["python", "/app/service/web_service.py"]
+      dockerfile: gateway/Dockerfile
+    container_name: testing_tool_gateway
+    environment:
+      PLATFORM_AUTH_ENABLED: ${PLATFORM_AUTH_ENABLED:-1}
+      PLATFORM_USER: ${PLATFORM_USER:-admin}
+      PLATFORM_PASSWORD: ${PLATFORM_PASSWORD:-}
     ports:
-      - "5000:5000"
+      - "5000:80"
+    networks:
+      - tools_network
+    depends_on:
+      tool-script-runner:
+        condition: service_healthy
+      tool-camera-sim:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ============================================================
+  # Script runner — internal port 8000
+  # ============================================================
+  tool-script-runner:
+    build:
+      context: .
+      dockerfile: tools/script-runner/Dockerfile
+    container_name: testing_tool_script_runner
+    expose:
+      - "8000"
+    networks:
+      - tools_network
     environment:
       TZ: Asia/Shanghai
       WEB_HOST: 0.0.0.0
-      WEB_PORT: 5000
+      SCRIPT_SERVICE_PORT: "8000"
       CONFIG_FILE: /app/runtime/config.ini
       SCRIPTS_DIR: /app/scripts
       LOGS_DIR: /app/runtime/logs
       DESCRIPTIONS_FILE: /app/runtime/script_descriptions.json
     volumes:
-      - ./service:/app/service
       - ./scripts:/app/scripts
       - ./runtime/config.ini:/app/runtime/config.ini
-      - ./runtime/config.ini:/app/scripts/config.ini
       - ./runtime/script_descriptions.json:/app/runtime/script_descriptions.json
-      - ./runtime/logs:/app/runtime/logs
+      - script_logs:/app/runtime/logs
     restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "100m"
         max-file: "3"
+
+  # ============================================================
+  # Camera simulator — internal port 8002
+  # ============================================================
+  tool-camera-sim:
+    build:
+      context: .
+      dockerfile: tools/camera-sim/Dockerfile
+    container_name: testing_tool_camera_sim
+    expose:
+      - "8002"
+    networks:
+      - tools_network
+    environment:
+      TZ: Asia/Shanghai
+      WEB_HOST: 0.0.0.0
+      CCTV_SERVICE_PORT: "8002"
+      CAMERA_STATE_FILE: /app/runtime/cycctv_stors.json
+      CAMERA_SETTINGS_FILE: /app/runtime/camera_settings.json
+    volumes:
+      - camera_state:/app/runtime
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+# ============================================================
+# 内部网络 — 业务容器不暴露 host 端口
+# ============================================================
+networks:
+  tools_network:
+    driver: bridge
+
+volumes:
+  script_logs:
+  camera_state:

@@ -1,5 +1,0 @@
-2026-08-10 11:01:56,986 - INFO - 📤 PUT请求参数: {"area": "A180_copy", "location_id": "p", "store_location_id": "s"}
-2026-08-10 11:01:56,986 - INFO - 📥 响应状态码: 200
-2026-08-10 11:01:57,012 - ERROR - ❌ 任务业务失败: {"success": false, "data": null, "msg": {"type": "warning"}}
-2026-08-10 11:15:23,497 - INFO - 🔐 开始登录服务: devel-105:9990
-2026-08-10 11:15:23,498 - INFO - ✅ 登录成功，已加载最新 token
